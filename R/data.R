@@ -1,0 +1,77 @@
+#' Cell-type marker gene reference
+#'
+#' Marker-gene sets compiled from Aran et al. (2017).
+#'
+#' @format A data frame containing cell-type marker genes.
+#' @source Aran et al. (2017)
+"GeneXCell"
+
+#' Example bulk expression matrix
+#'
+#' A small toy bulk expression matrix (genes x samples) used in the README.
+#'
+#' @format A numeric matrix with genes in rows and samples in columns.
+#' @source Included with the ctOWAS package.
+"exprB_example"
+
+#' Example marker gene list
+#'
+#' Marker genes for each cell type used by `pi_estimation_K()`.
+#'
+#' @format A named list of character vectors.
+#' @source Included with the ctOWAS package.
+"markers_example"
+
+#' Example genotype matrix
+#'
+#' A small toy genotype matrix (samples x SNPs) used in the README.
+#'
+#' @format A numeric matrix.
+#' @source Included with the ctOWAS package.
+"x_example"
+
+#' Example gene expression vector
+#'
+#' A small toy expression vector for one gene (length = samples).
+#'
+#' @format A numeric vector.
+#' @source Included with the ctOWAS package.
+"y_example"
+
+#' Example GWAS summary statistics
+#'
+#' A minimal list containing GWAS effect sizes and standard errors for the SNPs
+#' in `x_example`.
+#'
+#' @format A list with elements `Beta` and `se_Beta`.
+#' @source Included with the ctOWAS package.
+"gwas_example"
+
+#' Example merged table for PRIMO post-processing
+#'
+#' A toy results table with marginal p-values per cell type, a joint p-value, and
+#' a specificity label, used to demonstrate `infer_celltype_patterns()`.
+#'
+#' @format A data.frame.
+#' @source Included with the ctOWAS package.
+"merged_example"
+
+#' Example cell-type fraction matrix (2 cell types)
+#'
+#' A small example cell-type fraction matrix used in the README
+#' demonstration. Each row corresponds to a sample and each column
+#' corresponds to a cell type. Rows approximately sum to 1.
+#'
+#' @format A numeric matrix with:
+#' \describe{
+#'   \item{rows}{20 samples (Sample1–Sample20)}
+#'   \item{columns}{2 cell types: Cell1 and Cell2}
+#' }
+#'
+#' @details
+#' This dataset is artificially generated for demonstration purposes.
+#' It is not intended for biological interpretation.
+#'
+#' @source Simulated example data
+#'
+"pi_k"

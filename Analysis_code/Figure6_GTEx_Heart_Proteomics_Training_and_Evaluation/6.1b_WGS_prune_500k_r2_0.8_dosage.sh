@@ -1,0 +1,86 @@
+#!/bin/bash
+set -euo pipefail
+
+# Create moderately LD-pruned GTEx EA dosage files for PWAS training.
+#
+# Motivation:
+#   - Fully unpruned by_chr_nomiss has ~16M SNPs and is too large for local
+#     training.
+#   - The archived 500kb/r2=0.8 pruning is small but can make PWAS weights sparse.
+#   - This script keeps more SNPs by default with 500kb/r2=0.8.
+#
+# Examples:
+
+PLINK="${PLINK:-/Users/songxiaoyu152/NUS Dropbox/Xiaoyu Song/Density_Song/Paper_ctOWAS/Heart/plink2/plink2}"
+
+PAPER_DIR="${PAPER_ctOWAS_DIR:-/Users/songxiaoyu152/NUS Dropbox/Xiaoyu Song/Density_Song/Paper_PWAS}"
+NOMISS_DIR="${PWAS_NOMISS_BY_CHR_DIR:-$PAPER_DIR/IntermediateResults/WGS/by_chr_nomiss}"
+
+PRUNE_KB="${PWAS_PRUNE_KB:-500}"
+PRUNE_STEP="${PWAS_PRUNE_STEP:-1}"
+PRUNE_R2="${PWAS_PRUNE_R2:-0.8}"
+TAG="${PRUNE_KB}kb_${PRUNE_STEP}_r2_${PRUNE_R2}"
+
+OUTDIR="${PWAS_MODERATE_PRUNED_DIR:-$PAPER_DIR/IntermediateResults/WGS/WGS_pruned_by_chr_${TAG}}"
+CHR_LIST="${PWAS_CHR_LIST:-$(printf "%s," {1..22})}"
+CHR_LIST="${CHR_LIST%,}"
+
+mkdir -p "$OUTDIR"
+
+check_nonempty() {
+  if [ ! -s "$1" ]; then
+    echo "ERROR: missing or empty file: $1"
+    exit 1
+  fi
+}
+
+IFS=',' read -r -a CHRS <<< "$CHR_LIST"
+for CHR in "${CHRS[@]}"; do
+  echo "===== Moderate pruning chr${CHR}, ${TAG} ====="
+
+  NOMISS_PREFIX="$NOMISS_DIR/GTEx_EA_chr${CHR}_nomiss"
+  PRUNE_PREFIX="$OUTDIR/GTEx_EA_chr${CHR}_${TAG}"
+  PRUNED_PREFIX="$OUTDIR/chr${CHR}_dosage_nomiss_LDpruned_${TAG}"
+  PRUNED_RAW="${PRUNED_PREFIX}.raw"
+
+  check_nonempty "${NOMISS_PREFIX}.pgen"
+  check_nonempty "${NOMISS_PREFIX}.pvar"
+  check_nonempty "${NOMISS_PREFIX}.psam"
+
+  if [ -s "${PRUNE_PREFIX}.prune.in" ]; then
+    echo "Prune list exists, skipping: ${PRUNE_PREFIX}.prune.in"
+  else
+    echo "Running LD pruning chr${CHR}"
+    "$PLINK" \
+      --pfile "$NOMISS_PREFIX" \
+      --rm-dup exclude-all \
+      --indep-pairwise "${PRUNE_KB}kb" "$PRUNE_STEP" "$PRUNE_R2" \
+      --out "$PRUNE_PREFIX"
+  fi
+  check_nonempty "${PRUNE_PREFIX}.prune.in"
+
+  if [ -s "$PRUNED_RAW" ]; then
+    echo "Pruned raw exists, skipping: $PRUNED_RAW"
+  else
+    echo "Exporting moderate-pruned dosage chr${CHR}"
+    "$PLINK" \
+      --pfile "$NOMISS_PREFIX" \
+      --extract "${PRUNE_PREFIX}.prune.in" \
+      --export A \
+      --out "$PRUNED_PREFIX"
+  fi
+  check_nonempty "$PRUNED_RAW"
+
+  echo "===== Finished chr${CHR} ====="
+done
+
+
+echo "Combining all prune.in files..."
+
+cat "$OUTDIR"/GTEx_EA_chr{1..22}_"${TAG}".prune.in \
+  > "$OUTDIR"/GTEx_EA_all_"${TAG}".prune.in
+
+check_nonempty "$OUTDIR/GTEx_EA_all_${TAG}.prune.in"
+
+echo "Combined prune list saved to:"
+echo "$OUTDIR/GTEx_EA_all_${TAG}.prune.in"
