@@ -3,3 +3,4 @@
 ^\.positai$
 ^\.claude$
 ^Analysis_code$
+^data-raw$

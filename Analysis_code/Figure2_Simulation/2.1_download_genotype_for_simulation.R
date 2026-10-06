@@ -5,14 +5,11 @@ setwd('/Users/songxiaoyu152/NUS Dropbox/Xiaoyu Song/Density_Song/Paper_PWAS')
 
 library(data.table)
 simulation_dir <- "Data/Simulation"
-
 vcf_file <- file.path(simulation_dir, "chr22_20_21Mb.vcf.gz")
 out_file <- file.path(simulation_dir, "chr22_20_21Mb_1million_pseudo_subjects.csv")
 
 
 # narrow to a small region
-
-
 system(paste(
   "bcftools view",
   "-r 22:20000000-21000000",

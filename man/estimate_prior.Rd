@@ -16,66 +16,107 @@ estimate_prior(
 )
 }
 \arguments{
-\item{xCellScore}{Numeric matrix of xCell enrichment scores, with xCell cell
-types in rows and samples in columns.}
+\item{xCellScore}{A numeric matrix of xCell enrichment scores, with xCell
+cell types in rows and samples in columns. The matrix must have row names.}
 
-\item{cell_types}{Named list defining the target cell types. Each element
-contains one or more row names from \code{xCellScore}. When multiple xCell types
-are provided for one target cell type, their scores are averaged.}
+\item{cell_types}{A list defining the target cell-type compartments. Each
+element contains one or more row names of \code{xCellScore}. When multiple xCell
+types are assigned to the same compartment, their scores are averaged
+within each sample. If the list is named, its names are used as the output
+column names; otherwise, names of the form \code{"Cell1"}, \code{"Cell2"}, and so on
+are generated.}
 
-\item{mu}{Numeric vector of target mean proportions. For multiple cell types,
-its length must equal \code{length(cell_types)} and its values must sum to one.
-When only one cell type is supplied, \code{mu} is its target mean proportion,
-and an \code{"Others"} compartment with mean \code{1 - mu} is created automatically.}
+\item{mu}{A numeric vector specifying the target mean proportions. When
+multiple compartments are supplied, its length must equal
+\code{length(cell_types)}, all values must be positive, and the values must sum
+to one within \code{tol}. When a single compartment is supplied, \code{mu} must be a
+scalar strictly between zero and one; a complementary \code{"Others"}
+compartment with target mean \code{1 - mu} is added automatically.}
 
-\item{lower}{Numeric lower boundary for the estimated proportions. It may be
-a single value or one value per cell type. When only one cell type is
-supplied, this is the lower boundary for that cell type, and the upper
-boundary for \code{"Others"} is set to \code{1 - lower}.}
+\item{lower}{Numeric lower bounds for the estimated proportions. For multiple
+compartments, a scalar is applied to all compartments, and a vector is
+recycled to \code{length(cell_types)}. For a single supplied compartment,
+\code{lower} must be a scalar and the lower bound for \code{"Others"} is set to
+\code{1 - upper}. Default is \code{0.01}.}
 
-\item{upper}{Numeric upper boundary for the estimated proportions. It may be
-a single value or one value per cell type. When only one cell type is
-supplied, this is the upper boundary for that cell type, and the lower
-boundary for \code{"Others"} is set to \code{1 - upper}.}
+\item{upper}{Numeric upper bounds for the estimated proportions. For multiple
+compartments, a scalar is applied to all compartments, and a vector is
+recycled to \code{length(cell_types)}. For a single supplied compartment,
+\code{upper} must be a scalar and the upper bound for \code{"Others"} is set to
+\code{1 - lower}. Default is \code{0.98}.}
 
-\item{tol}{Numeric convergence tolerance. Default is \code{1e-8}.}
+\item{tol}{Numeric convergence tolerance for the maximum deviation of the
+estimated column means from \code{mu} and the row sums from one. Default is
+\code{1e-8}.}
 
-\item{max_iter}{Maximum number of calibration iterations. Default is \code{10000}.}
+\item{max_iter}{A positive integer specifying the maximum number of
+calibration iterations. Default is \code{10000}.}
 
-\item{eps}{Small positive constant added to the xCell scores to prevent zero
-values and division by zero. Default is \code{1e-8}.}
+\item{eps}{A small positive constant added to all nonnegative enrichment
+scores to prevent zero values and division by zero. Default is \code{1e-8}.}
 }
 \value{
-A numeric sample-by-cell-type matrix. Each row sums to one, every
-estimated proportion satisfies its specified boundaries, and the column
-means approximately equal \code{mu}. For a single target cell type, the output
-contains the target cell type and \code{"Others"}.
+A numeric matrix with samples in rows and cell-type compartments in
+columns. Each row sums to one, and each estimated proportion lies within
+its corresponding lower and upper bounds. Upon convergence, the column
+means equal the target proportions \code{mu} within \code{tol}.
+
+When one target compartment is supplied, the output contains two columns:
+the specified compartment and \code{"Others"}. Their target means are \code{mu} and
+\code{1 - mu}, respectively.
 }
 \description{
 Converts xCell enrichment scores into sample-specific prior cell-type
-proportions with specified mean proportions and lower/upper boundaries.
+proportions with user-specified mean proportions and lower and upper bounds.
 }
 \details{
-xCell scores are relative enrichment scores, not direct cell-type
-proportions. This function calibrates their sample-to-sample variation using
-externally specified mean proportions.
+xCell scores are relative enrichment scores rather than direct estimates of
+cell-type proportions. This function uses their sample-to-sample variation
+to construct prior composition estimates calibrated to externally specified
+population means.
 
-For each target cell type, the mean xCell score is calculated across its
-specified xCell populations. Negative scores are truncated to zero.
-Iterative proportional fitting and bounded normalization are then used to:
+For each target compartment and sample, the function averages the scores of
+the corresponding xCell populations using \code{na.rm = TRUE}. Negative scores
+are truncated to zero, and \code{eps} is added to all scores. When only one target
+compartment is supplied, the initial score for the complementary \code{"Others"}
+compartment is set to one in every sample.
+
+The function then alternates between:
 
 \enumerate{
-\item match the specified mean composition across samples;
-\item make the proportions sum to one within each sample; and
-\item constrain each proportion between \code{lower} and \code{upper}.
+\item scaling each compartment across samples toward its target mean; and
+\item normalizing each sample to sum to one while enforcing the specified
+lower and upper bounds.
 }
 
-The bounds and target means must be mutually compatible. Specifically, each
-target mean must lie within its corresponding bounds, the lower bounds must
-sum to no more than one, and the upper bounds must sum to at least one.
+Iteration stops when both the maximum deviation of the compartment means
+from \code{mu} and the maximum deviation of the sample totals from one are less
+than \code{tol}, or when \code{max_iter} is reached. A warning is issued if convergence
+is not achieved.
+
+The target means and bounds must be mutually compatible: every target mean
+must lie within its corresponding bounds, the lower bounds must sum to no
+more than one, and the upper bounds must sum to at least one. All xCell types
+listed in \code{cell_types} must be present in \code{rownames(xCellScore)}.
 }
 \examples{
-## Three cell types
+xCellScore <- matrix(
+  c(
+    0.8, 0.6, 0.7, 0.9,
+    0.4, 0.5, 0.3, 0.6,
+    0.5, 0.4, 0.6, 0.3,
+    0.2, 0.3, 0.2, 0.4
+  ),
+  nrow = 4,
+  byrow = TRUE,
+  dimnames = list(
+    c("Epithelial cells", "Adipocytes",
+      "Preadipocytes", "Fibroblasts"),
+    paste0("Sample", 1:4)
+  )
+)
+
+## Three target compartments
 cell_types <- list(
   Epithelial = "Epithelial cells",
   `Adipocytes/Preadipocytes` = c("Adipocytes", "Preadipocytes"),
@@ -94,7 +135,7 @@ colMeans(pi_prior)
 apply(pi_prior, 2, range)
 rowSums(pi_prior)
 
-## One target cell type versus all other cells
+## One target compartment versus all other cells
 pi_epithelial <- estimate_prior(
   xCellScore = xCellScore,
   cell_types = list(Epithelial = "Epithelial cells"),

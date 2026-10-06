@@ -1,187 +1,133 @@
-#' Compute a regularized inverse covariance matrix
-#'
-#' Stabilizes inversion of a covariance matrix by converting it to a correlation
-#' matrix, adding a nonnegative constant to its diagonal, and transforming the
-#' inverse back to the original covariance scale. This procedure is useful when
-#' the input matrix is ill-conditioned or nearly singular.
-#'
-#' @param X A symmetric numeric covariance or cross-product matrix with strictly
-#'   positive diagonal entries.
-#' @param reg_scale A nonnegative numeric value specifying the diagonal
-#'   regularization added to the correlation matrix. Larger values produce more
-#'   stable but more strongly regularized inverses. The default is \code{0.1}.
-#'
-#' @return A list with the following components:
-#' \describe{
-#'   \item{inv}{The regularized inverse covariance matrix, transformed back to
-#'     the original scale of \code{X}.}
-#'   \item{lambda}{The diagonal regularization value used.}
-#'   \item{condition}{The approximate condition number of the regularized
-#'     correlation matrix.}
-#' }
-#'
-#' @details
-#' Let \eqn{D} denote the diagonal matrix formed from the diagonal of \eqn{X},
-#' and let
-#'
-#' \deqn{R = D^{-1/2} X D^{-1/2}}
-#'
-#' be the corresponding correlation matrix. The function calculates
-#'
-#' \deqn{D^{-1/2}(R + \lambda I)^{-1}D^{-1/2},}
-#'
-#' where \eqn{\lambda} is specified by \code{reg_scale}. Cholesky inversion is
-#' attempted first; if it fails, the function falls back to a general matrix
-#' inverse.
-#'
-#' @export
-regularized_inverse_cov <- function(X, reg_scale = 0.1) {
-  X_cor <- stats::cov2cor(X)
-  X_reg <- X_cor + reg_scale * diag(nrow(X_cor))
-  X_cor_inv <- tryCatch(
-    chol2inv(chol(X_reg)),
-    error = function(e) solve(X_reg)
-  )
-  D <- diag(X)
-  X_inv <- diag(1 / sqrt(D)) %*% X_cor_inv %*% diag(1 / sqrt(D))
-
-  list(
-    inv = X_inv,
-    lambda = reg_scale,
-    condition = kappa(X_reg, exact = FALSE)
-  )
-}
-
-.ctOWAS_col_sds <- function(x) {
-  if (requireNamespace("matrixStats", quietly = TRUE)) {
-    return(matrixStats::colSds(x))
-  }
-  sqrt(colSums((x - matrix(colMeans(x), nrow = nrow(x), ncol = ncol(x), byrow = TRUE))^2) /
-    (nrow(x) - 1))
-}
-
-.ctOWAS_col_vars <- function(x) {
-  if (requireNamespace("matrixStats", quietly = TRUE)) {
-    return(matrixStats::colVars(x))
-  }
-  colSums((x - matrix(colMeans(x), nrow = nrow(x), ncol = ncol(x), byrow = TRUE))^2) /
-    (nrow(x) - 1)
-}
-
-.estimate_reg_scale_from_cov <- function(X, target_condition = 100,
-                                         min_scale = 0.001,
-                                         max_scale = 0.1) {
-  X_cor <- stats::cov2cor(X)
-  eig <- eigen(X_cor, symmetric = TRUE, only.values = TRUE)$values
-  lambda_max <- max(eig, na.rm = TRUE)
-  lambda_min <- min(eig, na.rm = TRUE)
-  if (!is.finite(lambda_max) || !is.finite(lambda_min)) {
-    return(max_scale)
-  }
-  if (lambda_min > 0 && lambda_max / lambda_min <= target_condition) {
-    return(min_scale)
-  }
-
-  # For X_cor + sI, condition = (lambda_max + s) / (lambda_min + s).
-  # Solve for the smallest s that makes condition <= target_condition.
-  estimated <- (lambda_max - target_condition * lambda_min) / (target_condition - 1)
-  estimated <- max(min_scale, estimated, na.rm = TRUE)
-  min(estimated, max_scale)
-}
-
-.joint_p_from_inverse <- function(S, v, drop_intercept = FALSE) {
-  Z_full <- diag(1 / sqrt(diag(S))) %*% S %*% matrix(v, ncol = 1)
-  Z_join <- as.numeric(Z_full)
-  if (drop_intercept) {
-    Z_join <- Z_join[-1]
-  }
-  p_join_vec <- 2 * stats::pnorm(abs(Z_join), lower.tail = FALSE)
-  list(
-    Z_join = Z_join,
-    p_join_vec = p_join_vec,
-    p_join = safe_ACAT(p_join_vec)
-  )
-}
-
 #' Test K cell-type-specific molecular-trait associations
 #'
+#' @description
 #' Performs ctOWAS association testing for K cell types by combining
-#' cell-type-specific SNP prediction weights, GWAS summary statistics, and
-#' genotype data from a linkage-disequilibrium reference panel. The function
-#' returns both separate cell-type statistics and joint statistics adjusted for
-#' correlations among the genetically predicted cell-type-specific molecular
-#' traits.
+#' cell-type-specific SNP prediction weights, GWAS summary statistics and
+#' genotype data from a linkage-disequilibrium (LD) reference panel. The
+#' function returns separate (marginal) cell-type statistics, and joint
+#' statistics adjusted for correlations among the genetically predicted
+#' cell-type-specific molecular traits.
 #'
 #' @param W A numeric P by K matrix of cell-type-specific SNP prediction
-#'   weights. Rows represent SNPs, columns represent cell types, and the SNP
-#'   ordering must match \code{x_g} and \code{gwas_z_score}.
-#' @param gwas_z_score {Beta/Se_Beta}{A numeric vector of length P containing GWAS z score, calculated
-#' from effect-size estimates over standard errors.}
-#' @param x_g A numeric reference-panel genotype dosage matrix with individuals
-#'   in rows and the same P SNPs in columns.
-#' @param n0 Number of controls in the GWAS. This argument must be positive when
-#'   \code{family = "binomial"} and is ignored for a Gaussian outcome.
-#' @param n1 Number of cases in the GWAS. This argument must be positive when
-#'   \code{family = "binomial"} and is ignored for a Gaussian outcome.
-#' @param family Outcome family. Use \code{"binomial"} for a case-control trait
-#'   or \code{"gaussian"} for a continuous trait.
-#' @param regularization Method used to select the diagonal regularization
-#'   scale. Use \code{"fixed"} to use \code{reg_scale}, or \code{"estimate"} to
-#'   estimate a scale targeting the condition number specified by
-#'   \code{condition_max}.
-#' @param reg_scale Nonnegative fixed regularization scale used when
-#'   \code{regularization = "fixed"}. The default is \code{0.1}.
-#' @param condition_max Target upper bound for the condition number when
-#'   \code{regularization = "estimate"}. The default is \code{100}.
-#' @param reg_min_scale Minimum permitted estimated regularization scale.
-#' @param reg_max_scale Maximum permitted estimated regularization scale.
+#'   weights (for example, \code{W} from \code{\link{ctOWAS_train_K}}). Rows
+#'   are SNPs and columns are cell types. SNP order must match the columns of
+#'   \code{x_g} and the elements of \code{gwas_z_score}.
+#' @param gwas_z_score A numeric vector of length P containing GWAS
+#'   z-scores, calculated as the effect-size estimate divided by its standard
+#'   error (\eqn{\hat\beta / \mathrm{SE}(\hat\beta)}). Effect alleles must be
+#'   aligned with the dosage coding in \code{x_g} and \code{W}.
+#' @param x_g A numeric matrix of reference-panel genotype dosages, with
+#'   individuals in rows and the same P SNPs in columns.
+#' @param n0 Number of controls in the GWAS. Required and must be positive
+#'   when \code{family = "binomial"}; not used when
+#'   \code{family = "gaussian"}.
+#' @param n1 Number of cases in the GWAS. Required and must be positive when
+#'   \code{family = "binomial"}; not used when \code{family = "gaussian"}.
+#' @param family Outcome family: \code{"binomial"} (default) for a
+#'   case-control trait or \code{"gaussian"} for a continuous trait.
+#' @param regularization How the diagonal regularization scale is chosen:
+#'   \code{"fixed"} (default) uses \code{reg_scale}; \code{"estimate"}
+#'   chooses the smallest scale that brings the condition number of the
+#'   regularized correlation matrix down to \code{condition_max}, bounded by
+#'   \code{reg_min_scale} and \code{reg_max_scale}.
+#' @param reg_scale Nonnegative regularization scale used when
+#'   \code{regularization = "fixed"}. Default \code{0.1}.
+#' @param condition_max Target condition number when
+#'   \code{regularization = "estimate"}. Default \code{100}.
+#' @param reg_min_scale Lower bound for the estimated scale. This value is
+#'   also used when the unregularized matrix already meets
+#'   \code{condition_max}, so some regularization is always applied.
+#'   Default \code{0.001}.
+#' @param reg_max_scale Upper bound for the estimated scale; also used if
+#'   the eigenvalues are not finite. Default \code{0.1}.
 #'
 #' @details
-#' For each cell type, the function first calculates a separate association
-#' statistic using the GWAS SNP statistics and the variance of the genetically
-#' predicted molecular trait in the reference panel.
+#' \strong{Separate statistics.} The predicted traits in the reference panel
+#' are \eqn{\widehat{Y} = X_g W}. For cell type \eqn{k}, the separate
+#' statistic is
 #'
-#' The predicted traits are calculated as
+#' \deqn{Z^{\mathrm{sep}}_k = \frac{\sum_{l} w_{lk}\, \hat\sigma_l\, z_l}
+#'                                 {\hat\sigma_{k}},}
 #'
-#' \deqn{\widehat{Y} = X_g W,}
+#' where \eqn{z_l} is the GWAS z-score of SNP \eqn{l}, \eqn{\hat\sigma_l} is
+#' its standard deviation in \code{x_g}, and \eqn{\hat\sigma_k} is the
+#' standard deviation of the \eqn{k}th column of \eqn{\widehat{Y}}.
+#' Cell types whose predicted trait has zero or non-finite variance (for
+#' example, a column of \code{W} that is all zero) get \code{NA}.
 #'
-#' where \eqn{X_g} is the reference genotype matrix and \eqn{W} is the
-#' cell-type-specific weight matrix. Correlations among the columns of
-#' \eqn{\widehat{Y}} are used to adjust the K association statistics.
+#' \strong{Joint statistics.} The columns of \eqn{\widehat{Y}} are
+#' standardized to give \eqn{\tilde{Y}}. For a binary outcome, a column of
+#' ones is added for the intercept, whose statistic is
+#' \eqn{Z_0 = \log(n_1/n_0) / \sqrt{1/n_1 + 1/n_0}}. For a continuous
+#' outcome, only the K predicted traits are used. With
+#' \eqn{A = \tilde{Y}^\top \tilde{Y}}, \eqn{\Omega = \mathrm{diag}(A)} and
+#' \eqn{R} the correlation form of \eqn{A}, the regularized inverse is
 #'
-#' For a binary outcome, the joint model additionally incorporates an intercept
-#' statistic derived from the case-control ratio. For a continuous outcome, the
-#' joint model contains only the K predicted cell-type-specific traits.
+#' \deqn{S = \Omega^{-1/2} (R + sI)^{-1} \Omega^{-1/2},}
 #'
-#' If the predicted traits have invalid variances or are nearly perfectly
-#' collinear, the function returns the separate statistics instead of attempting
-#' joint adjustment. Otherwise, it regularizes and inverts their covariance
-#' matrix to obtain the joint cell-type statistics. The joint cell-type
-#' p-values are combined using the aggregated Cauchy association test.
+#' with scale \eqn{s} chosen according to \code{regularization}. The joint
+#' statistics are
+#'
+#' \deqn{Z^{\mathrm{join}} = \mathrm{diag}(S)^{-1/2}\, S\, \Omega^{1/2} Z,}
+#'
+#' where \eqn{Z} stacks \eqn{Z_0} (binary only) and \eqn{Z^{\mathrm{sep}}}.
+#' The intercept element is dropped from the result. Two-sided p-values
+#' come from the standard normal distribution.
+#'
+#' \strong{Fallback.} The joint step is skipped, and the separate
+#' statistics are returned in its place, if any cell type has an invalid
+#' predicted-trait variance (\code{mode = "invalid_variance_separate"}) or
+#' any pair of predicted traits has absolute correlation above 0.999999
+#' (\code{mode = "collinear_separate"}). Note that a single cell type with
+#' all-zero weights triggers the fallback for the whole test.
+#'
+#' \strong{Combined p-value.} The K p-values in \code{p_join_vec} are
+#' combined with the aggregated Cauchy association test (ACAT) via
+#' \code{\link{safe_ACAT}}, which drops missing or out-of-range p-values.
 #'
 #' @return A list with the following components:
 #' \describe{
-#'   \item{Z_join}{A numeric vector of length K containing the joint,
-#'     correlation-adjusted cell-type Z-statistics. When joint adjustment cannot
-#'     be performed, this contains the separate Z-statistics.}
-#'   \item{p_join_vec}{A numeric vector of length K containing p-values
-#'     corresponding to \code{Z_join}.}
-#'   \item{p_join}{The ACAT-combined p-value across the K cell types.}
-#'   \item{Z_sep}{A numeric vector of length K containing the separate
-#'     cell-type Z-statistics.}
-#'   \item{p_sep}{A numeric vector of length K containing the corresponding
-#'     separate p-values.}
-#'   \item{reg_scale_selected}{The regularization scale used for joint
-#'     adjustment. This is \code{NA} when joint adjustment is not performed.}
-#'   \item{reg_condition}{The condition number after regularization. This is
-#'     \code{NA} when joint adjustment is not performed.}
-#'   \item{mode}{A character string describing the analysis performed:
-#'     \code{"joint"}, \code{"invalid_variance_separate"}, or
-#'     \code{"collinear_separate"}.}
+#'   \item{Z_join}{Numeric vector of length K of joint,
+#'     correlation-adjusted cell-type z-statistics, or the separate
+#'     z-statistics when the joint step is skipped.}
+#'   \item{p_join_vec}{Numeric vector of length K of two-sided p-values for
+#'     \code{Z_join}.}
+#'   \item{p_join}{ACAT-combined p-value across the K cell types, or
+#'     \code{NA} if no valid p-values remain or ACAT fails.}
+#'   \item{Z_sep}{Numeric vector of length K of separate cell-type
+#'     z-statistics (\code{NA} for cell types with invalid variance).}
+#'   \item{p_sep}{Numeric vector of length K of two-sided p-values for
+#'     \code{Z_sep}.}
+#'   \item{reg_scale_selected}{Regularization scale used in the joint step,
+#'     or \code{NA} if it was skipped.}
+#'   \item{reg_condition}{Approximate condition number (from
+#'     \code{kappa(exact = FALSE)}) of the regularized correlation matrix, or
+#'     \code{NA} if the joint step was skipped.}
+#'   \item{mode}{Character string: \code{"joint"},
+#'     \code{"invalid_variance_separate"} or \code{"collinear_separate"}.}
+#' }
+#'
+#' @seealso \code{\link{ctOWAS_train_K}} for training the weights \code{W};
+#'   \code{\link{safe_ACAT}}.
+#'
+#' @examples
+#' \dontrun{
+#' fit <- ctOWAS_train_K(y = expr_gene, x = geno, pi_k = cell_fractions)
+#'
+#' res <- ctOWAS_assoc_test_K(
+#'   W            = fit$W,          # P x K
+#'   gwas_z_score = gwas$beta / gwas$se,
+#'   x_g          = ref_geno,       # reference individuals x P
+#'   n0           = 20000,
+#'   n1           = 5000,
+#'   family       = "binomial",
+#'   regularization = "estimate"
+#' )
+#' res$mode
+#' res$p_join
 #' }
 #'
 #' @export
-#'
 ctOWAS_assoc_test_K <- function(W,
                                  gwas_z_score,
                                  x_g,
@@ -295,17 +241,75 @@ ctOWAS_assoc_test_K <- function(W,
   )
 }
 
-#' Safely combine p-values with ACAT
-#'
-#' This helper wraps \code{ACAT::ACAT()} and returns \code{NA} instead of
-#' stopping if ACAT fails because of numerical or input issues.
-#'
-#' @param p_values Numeric vector of p-values to combine.
-#'
-#' @return A single combined p-value, or \code{NA} if ACAT fails.
-#'
-#' @importFrom ACAT ACAT
-#' @export
+# ================= Helper functions ============
+regularized_inverse_cov <- function(X, reg_scale = 0.1) {
+  X_cor <- stats::cov2cor(X)
+  X_reg <- X_cor + reg_scale * diag(nrow(X_cor))
+  X_cor_inv <- tryCatch(
+    chol2inv(chol(X_reg)),
+    error = function(e) solve(X_reg)
+  )
+  D <- diag(X)
+  X_inv <- diag(1 / sqrt(D)) %*% X_cor_inv %*% diag(1 / sqrt(D))
+
+  list(
+    inv = X_inv,
+    lambda = reg_scale,
+    condition = kappa(X_reg, exact = FALSE)
+  )
+}
+
+.ctOWAS_col_sds <- function(x) {
+  if (requireNamespace("matrixStats", quietly = TRUE)) {
+    return(matrixStats::colSds(x))
+  }
+  sqrt(colSums((x - matrix(colMeans(x), nrow = nrow(x), ncol = ncol(x), byrow = TRUE))^2) /
+         (nrow(x) - 1))
+}
+
+.ctOWAS_col_vars <- function(x) {
+  if (requireNamespace("matrixStats", quietly = TRUE)) {
+    return(matrixStats::colVars(x))
+  }
+  colSums((x - matrix(colMeans(x), nrow = nrow(x), ncol = ncol(x), byrow = TRUE))^2) /
+    (nrow(x) - 1)
+}
+
+.estimate_reg_scale_from_cov <- function(X, target_condition = 100,
+                                         min_scale = 0.001,
+                                         max_scale = 0.1) {
+  X_cor <- stats::cov2cor(X)
+  eig <- eigen(X_cor, symmetric = TRUE, only.values = TRUE)$values
+  lambda_max <- max(eig, na.rm = TRUE)
+  lambda_min <- min(eig, na.rm = TRUE)
+  if (!is.finite(lambda_max) || !is.finite(lambda_min)) {
+    return(max_scale)
+  }
+  if (lambda_min > 0 && lambda_max / lambda_min <= target_condition) {
+    return(min_scale)
+  }
+
+  # For X_cor + sI, condition = (lambda_max + s) / (lambda_min + s).
+  # Solve for the smallest s that makes condition <= target_condition.
+  estimated <- (lambda_max - target_condition * lambda_min) / (target_condition - 1)
+  estimated <- max(min_scale, estimated, na.rm = TRUE)
+  min(estimated, max_scale)
+}
+
+.joint_p_from_inverse <- function(S, v, drop_intercept = FALSE) {
+  Z_full <- diag(1 / sqrt(diag(S))) %*% S %*% matrix(v, ncol = 1)
+  Z_join <- as.numeric(Z_full)
+  if (drop_intercept) {
+    Z_join <- Z_join[-1]
+  }
+  p_join_vec <- 2 * stats::pnorm(abs(Z_join), lower.tail = FALSE)
+  list(
+    Z_join = Z_join,
+    p_join_vec = p_join_vec,
+    p_join = safe_ACAT(p_join_vec)
+  )
+}
+
 safe_ACAT <- function(p_values) {
   p_values <- as.numeric(p_values)
   p_values <- p_values[is.finite(p_values) & p_values >= 0 & p_values <= 1]

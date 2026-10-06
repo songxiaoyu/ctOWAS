@@ -13,43 +13,105 @@ run_gwas(
 )
 }
 \arguments{
-\item{X}{Numeric genotype matrix with samples in rows and SNPs in columns.}
+\item{X}{Numeric genotype matrix (or object coercible with
+\code{as.matrix()}) with samples in rows and SNPs in columns. Should not
+contain missing values (see Details).}
 
-\item{D}{Numeric phenotype vector of length \code{n}.}
+\item{D}{Numeric phenotype vector of length \code{nrow(X)}. For
+\code{family0 = binomial()}, coded 0 (control) and 1 (case). Samples
+with non-finite values are removed.}
 
-\item{covar}{Optional matrix or data frame of covariates.}
+\item{covar}{Optional matrix or data frame of covariates with
+\code{nrow(X)} rows. Character columns are trimmed and converted to
+factors; factors are dummy-coded with \code{model.matrix()}. Samples with
+any missing covariate are removed, and constant covariates are dropped.
+An intercept is always included. Default \code{NULL} (intercept only).}
 
-\item{family0}{Model family, either \code{gaussian()} or \code{binomial()}.}
+\item{family0}{A family object: \code{stats::gaussian()} (default) or
+\code{stats::binomial()}. Must be a family object, not a character
+string.}
 
-\item{method_binomial}{Character string, either \code{"score"} or
-\code{"glm"}.Score does not give beta estimate and its standard deviation,
-but give z-score and p-value for downstream usage. It's a faster option for
-large data.}
+\item{method_binomial}{Method used when \code{family0 = binomial()}:
+\code{"score"} (default) or \code{"glm"}. The score test fits the null
+model once and is much faster for many SNPs, but returns only z-scores
+and p-values (\code{Beta} and \code{se_Beta} are \code{NA}). The
+\code{"glm"} option fits a separate logistic regression for each SNP and
+returns Wald estimates. Ignored for Gaussian traits.}
 }
 \value{
-A data.frame with columns:
+A data frame with one row per SNP, in the column order of
+\code{X}, and columns:
 \describe{
-\item{Beta}{Estimated SNP effect (NA for score test).}
-\item{se_Beta}{Standard error (NA for score test).}
-\item{Z}{Z-score.}
+\item{Beta}{Estimated SNP effect (log odds ratio for binomial
+\code{"glm"}); \code{NA} for the score test.}
+\item{se_Beta}{Standard error of \code{Beta}; \code{NA} for the score
+test.}
+\item{Z}{Z-statistic.}
 \item{P}{Two-sided p-value.}
 }
 }
 \description{
-This function performs univariate association testing for each SNP in
-\code{X}. It supports both quantitative traits and case-control outcomes.
+Performs univariate association testing of each SNP (column) in \code{X}
+with a phenotype, optionally adjusting for covariates. Supports
+quantitative traits (Gaussian) and case-control traits (binomial).
 }
 \details{
-For Gaussian traits, the implementation uses a fast residualization-based
-approach. For binomial traits, either per-SNP GLM fitting or a score test
-can be used.
+\strong{Sample filtering.} Samples with a non-finite phenotype, or with
+any missing covariate, are removed before testing. Missing genotypes are
+not filtered: for Gaussian traits and the score test, a SNP with any
+missing genotype returns \code{NA}; for \code{"glm"}, the affected
+samples are dropped for that SNP only. Impute or filter genotypes
+beforehand for consistent sample sets.
+
+\strong{Gaussian traits.} The phenotype and each SNP are residualized on
+the covariate matrix \eqn{Z} (including the intercept), and the effect is
+\eqn{\hat\beta_j = \tilde{x}_j^\top \tilde{y} / \tilde{x}_j^\top
+\tilde{x}_j}. The residual variance is estimated once from the null
+(covariates-only) model with \eqn{n - q - 1} degrees of freedom, where
+\eqn{q = \mathrm{ncol}(Z)}, and \eqn{\mathrm{SE}(\hat\beta_j) =
+\sqrt{\hat\sigma^2 / \tilde{x}_j^\top \tilde{x}_j}}. P-values use the
+normal approximation rather than the t distribution, which is accurate
+for large samples.
+
+\strong{Binomial traits, \code{"glm"}.} Each SNP is tested by Wald test
+in \code{glm(D ~ x + covariates, family = family0)}. SNPs whose fit fails
+return \code{NA}.
+
+\strong{Binomial traits, \code{"score"}.} The null model is fitted once
+with \code{glm.fit()}, giving fitted probabilities \eqn{\hat\mu_i} and
+weights \eqn{w_i = \hat\mu_i(1 - \hat\mu_i)}. Each SNP is projected off the
+covariates in the weighted metric, giving \eqn{\tilde{x}_j}, and
+
+\deqn{Z_j = \frac{\sum_i \tilde{x}_{ij}(D_i - \hat\mu_i)}
+                 {\sqrt{\sum_i w_i \tilde{x}_{ij}^2}}.}
+
+These weights assume the canonical logit link, so the score test should
+be used only with \code{binomial(link = "logit")}.
+
+Monomorphic SNPs (zero variance after covariate adjustment) return
+\code{NA} or \code{NaN} statistics. All p-values are two-sided.
 }
 \examples{
-n <- 100
+set.seed(1)
+n <- 200
 p <- 10
-X <- matrix(rnorm(n * p), n, p)
-D <- rnorm(n)
+X <- matrix(rbinom(n * p, 2, 0.3), n, p)
+covar <- data.frame(age = rnorm(n, 50, 10),
+                    sex = sample(c("F", "M"), n, replace = TRUE))
 
-res <- run_gwas(X, D, gaussian())
+# Quantitative trait
+D <- 0.3 * X[, 1] + rnorm(n)
+res_q <- run_gwas(X, D, covar = covar, family0 = gaussian())
+head(res_q)
 
+# Case-control trait, score test
+D_bin <- rbinom(n, 1, plogis(-1 + 0.5 * X[, 1]))
+res_b <- run_gwas(X, D_bin, covar = covar, family0 = binomial(),
+                  method_binomial = "score")
+head(res_b)
+
+}
+\seealso{
+\code{\link{ctOWAS_assoc_test_K}}, which takes the \code{Z}
+column as \code{gwas_z_score}.
 }

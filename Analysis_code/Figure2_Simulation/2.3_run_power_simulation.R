@@ -16,7 +16,7 @@ paper_dir <- getwd()
 output_dir <- file.path(paper_dir, "Results", "Simulation")
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
-source('Github/Analysis_code/Figure4_Simulation/4.2_simulation_function.R')
+source('Github/Analysis_code/Figure2_Simulation/2.2_simulation_function.R')
 X_pool <- data.table::fread(file.path(paper_dir, "Data", "Simulation", "chr22_20_21Mb_1million_pseudo_subjects.csv"), data.table = FALSE)
 
 

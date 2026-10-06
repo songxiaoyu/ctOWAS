@@ -20,89 +20,142 @@ ctOWAS_assoc_test_K(
 }
 \arguments{
 \item{W}{A numeric P by K matrix of cell-type-specific SNP prediction
-weights. Rows represent SNPs, columns represent cell types, and the SNP
-ordering must match \code{x_g} and \code{gwas_z_score}.}
+weights (for example, \code{W} from \code{\link{ctOWAS_train_K}}). Rows
+are SNPs and columns are cell types. SNP order must match the columns of
+\code{x_g} and the elements of \code{gwas_z_score}.}
 
-\item{gwas_z_score}{{Beta/Se_Beta}{A numeric vector of length P containing GWAS z score, calculated
-from effect-size estimates over standard errors.}}
+\item{gwas_z_score}{A numeric vector of length P containing GWAS
+z-scores, calculated as the effect-size estimate divided by its standard
+error (\eqn{\hat\beta / \mathrm{SE}(\hat\beta)}). Effect alleles must be
+aligned with the dosage coding in \code{x_g} and \code{W}.}
 
-\item{x_g}{A numeric reference-panel genotype dosage matrix with individuals
-in rows and the same P SNPs in columns.}
+\item{x_g}{A numeric matrix of reference-panel genotype dosages, with
+individuals in rows and the same P SNPs in columns.}
 
-\item{n0}{Number of controls in the GWAS. This argument must be positive when
-\code{family = "binomial"} and is ignored for a Gaussian outcome.}
+\item{n0}{Number of controls in the GWAS. Required and must be positive
+when \code{family = "binomial"}; not used when
+\code{family = "gaussian"}.}
 
-\item{n1}{Number of cases in the GWAS. This argument must be positive when
-\code{family = "binomial"} and is ignored for a Gaussian outcome.}
+\item{n1}{Number of cases in the GWAS. Required and must be positive when
+\code{family = "binomial"}; not used when \code{family = "gaussian"}.}
 
-\item{family}{Outcome family. Use \code{"binomial"} for a case-control trait
-or \code{"gaussian"} for a continuous trait.}
+\item{family}{Outcome family: \code{"binomial"} (default) for a
+case-control trait or \code{"gaussian"} for a continuous trait.}
 
-\item{regularization}{Method used to select the diagonal regularization
-scale. Use \code{"fixed"} to use \code{reg_scale}, or \code{"estimate"} to
-estimate a scale targeting the condition number specified by
-\code{condition_max}.}
+\item{regularization}{How the diagonal regularization scale is chosen:
+\code{"fixed"} (default) uses \code{reg_scale}; \code{"estimate"}
+chooses the smallest scale that brings the condition number of the
+regularized correlation matrix down to \code{condition_max}, bounded by
+\code{reg_min_scale} and \code{reg_max_scale}.}
 
-\item{reg_scale}{Nonnegative fixed regularization scale used when
-\code{regularization = "fixed"}. The default is \code{0.1}.}
+\item{reg_scale}{Nonnegative regularization scale used when
+\code{regularization = "fixed"}. Default \code{0.1}.}
 
-\item{condition_max}{Target upper bound for the condition number when
-\code{regularization = "estimate"}. The default is \code{100}.}
+\item{condition_max}{Target condition number when
+\code{regularization = "estimate"}. Default \code{100}.}
 
-\item{reg_min_scale}{Minimum permitted estimated regularization scale.}
+\item{reg_min_scale}{Lower bound for the estimated scale. This value is
+also used when the unregularized matrix already meets
+\code{condition_max}, so some regularization is always applied.
+Default \code{0.001}.}
 
-\item{reg_max_scale}{Maximum permitted estimated regularization scale.}
+\item{reg_max_scale}{Upper bound for the estimated scale; also used if
+the eigenvalues are not finite. Default \code{0.1}.}
 }
 \value{
 A list with the following components:
 \describe{
-\item{Z_join}{A numeric vector of length K containing the joint,
-correlation-adjusted cell-type Z-statistics. When joint adjustment cannot
-be performed, this contains the separate Z-statistics.}
-\item{p_join_vec}{A numeric vector of length K containing p-values
-corresponding to \code{Z_join}.}
-\item{p_join}{The ACAT-combined p-value across the K cell types.}
-\item{Z_sep}{A numeric vector of length K containing the separate
-cell-type Z-statistics.}
-\item{p_sep}{A numeric vector of length K containing the corresponding
-separate p-values.}
-\item{reg_scale_selected}{The regularization scale used for joint
-adjustment. This is \code{NA} when joint adjustment is not performed.}
-\item{reg_condition}{The condition number after regularization. This is
-\code{NA} when joint adjustment is not performed.}
-\item{mode}{A character string describing the analysis performed:
-\code{"joint"}, \code{"invalid_variance_separate"}, or
-\code{"collinear_separate"}.}
+\item{Z_join}{Numeric vector of length K of joint,
+correlation-adjusted cell-type z-statistics, or the separate
+z-statistics when the joint step is skipped.}
+\item{p_join_vec}{Numeric vector of length K of two-sided p-values for
+\code{Z_join}.}
+\item{p_join}{ACAT-combined p-value across the K cell types, or
+\code{NA} if no valid p-values remain or ACAT fails.}
+\item{Z_sep}{Numeric vector of length K of separate cell-type
+z-statistics (\code{NA} for cell types with invalid variance).}
+\item{p_sep}{Numeric vector of length K of two-sided p-values for
+\code{Z_sep}.}
+\item{reg_scale_selected}{Regularization scale used in the joint step,
+or \code{NA} if it was skipped.}
+\item{reg_condition}{Approximate condition number (from
+\code{kappa(exact = FALSE)}) of the regularized correlation matrix, or
+\code{NA} if the joint step was skipped.}
+\item{mode}{Character string: \code{"joint"},
+\code{"invalid_variance_separate"} or \code{"collinear_separate"}.}
 }
 }
 \description{
 Performs ctOWAS association testing for K cell types by combining
-cell-type-specific SNP prediction weights, GWAS summary statistics, and
-genotype data from a linkage-disequilibrium reference panel. The function
-returns both separate cell-type statistics and joint statistics adjusted for
-correlations among the genetically predicted cell-type-specific molecular
-traits.
+cell-type-specific SNP prediction weights, GWAS summary statistics and
+genotype data from a linkage-disequilibrium (LD) reference panel. The
+function returns separate (marginal) cell-type statistics, and joint
+statistics adjusted for correlations among the genetically predicted
+cell-type-specific molecular traits.
 }
 \details{
-For each cell type, the function first calculates a separate association
-statistic using the GWAS SNP statistics and the variance of the genetically
-predicted molecular trait in the reference panel.
+\strong{Separate statistics.} The predicted traits in the reference panel
+are \eqn{\widehat{Y} = X_g W}. For cell type \eqn{k}, the separate
+statistic is
 
-The predicted traits are calculated as
+\deqn{Z^{\mathrm{sep}}_k = \frac{\sum_{l} w_{lk}\, \hat\sigma_l\, z_l}
+                                {\hat\sigma_{k}},}
 
-\deqn{\widehat{Y} = X_g W,}
+where \eqn{z_l} is the GWAS z-score of SNP \eqn{l}, \eqn{\hat\sigma_l} is
+its standard deviation in \code{x_g}, and \eqn{\hat\sigma_k} is the
+standard deviation of the \eqn{k}th column of \eqn{\widehat{Y}}.
+Cell types whose predicted trait has zero or non-finite variance (for
+example, a column of \code{W} that is all zero) get \code{NA}.
 
-where \eqn{X_g} is the reference genotype matrix and \eqn{W} is the
-cell-type-specific weight matrix. Correlations among the columns of
-\eqn{\widehat{Y}} are used to adjust the K association statistics.
+\strong{Joint statistics.} The columns of \eqn{\widehat{Y}} are
+standardized to give \eqn{\tilde{Y}}. For a binary outcome, a column of
+ones is added for the intercept, whose statistic is
+\eqn{Z_0 = \log(n_1/n_0) / \sqrt{1/n_1 + 1/n_0}}. For a continuous
+outcome, only the K predicted traits are used. With
+\eqn{A = \tilde{Y}^\top \tilde{Y}}, \eqn{\Omega = \mathrm{diag}(A)} and
+\eqn{R} the correlation form of \eqn{A}, the regularized inverse is
 
-For a binary outcome, the joint model additionally incorporates an intercept
-statistic derived from the case-control ratio. For a continuous outcome, the
-joint model contains only the K predicted cell-type-specific traits.
+\deqn{S = \Omega^{-1/2} (R + sI)^{-1} \Omega^{-1/2},}
 
-If the predicted traits have invalid variances or are nearly perfectly
-collinear, the function returns the separate statistics instead of attempting
-joint adjustment. Otherwise, it regularizes and inverts their covariance
-matrix to obtain the joint cell-type statistics. The joint cell-type
-p-values are combined using the aggregated Cauchy association test.
+with scale \eqn{s} chosen according to \code{regularization}. The joint
+statistics are
+
+\deqn{Z^{\mathrm{join}} = \mathrm{diag}(S)^{-1/2}\, S\, \Omega^{1/2} Z,}
+
+where \eqn{Z} stacks \eqn{Z_0} (binary only) and \eqn{Z^{\mathrm{sep}}}.
+The intercept element is dropped from the result. Two-sided p-values
+come from the standard normal distribution.
+
+\strong{Fallback.} The joint step is skipped, and the separate
+statistics are returned in its place, if any cell type has an invalid
+predicted-trait variance (\code{mode = "invalid_variance_separate"}) or
+any pair of predicted traits has absolute correlation above 0.999999
+(\code{mode = "collinear_separate"}). Note that a single cell type with
+all-zero weights triggers the fallback for the whole test.
+
+\strong{Combined p-value.} The K p-values in \code{p_join_vec} are
+combined with the aggregated Cauchy association test (ACAT) via
+\code{\link{safe_ACAT}}, which drops missing or out-of-range p-values.
+}
+\examples{
+\dontrun{
+fit <- ctOWAS_train_K(y = expr_gene, x = geno, pi_k = cell_fractions)
+
+res <- ctOWAS_assoc_test_K(
+  W            = fit$W,          # P x K
+  gwas_z_score = gwas$beta / gwas$se,
+  x_g          = ref_geno,       # reference individuals x P
+  n0           = 20000,
+  n1           = 5000,
+  family       = "binomial",
+  regularization = "estimate"
+)
+res$mode
+res$p_join
+}
+
+}
+\seealso{
+\code{\link{ctOWAS_train_K}} for training the weights \code{W};
+\code{\link{safe_ACAT}}.
 }

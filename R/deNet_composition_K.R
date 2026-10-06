@@ -1,56 +1,97 @@
 #' Estimate Prior Cell-Type Composition from xCell Scores
 #'
 #' Converts xCell enrichment scores into sample-specific prior cell-type
-#' proportions with specified mean proportions and lower/upper boundaries.
+#' proportions with user-specified mean proportions and lower and upper bounds.
 #'
-#' @param xCellScore Numeric matrix of xCell enrichment scores, with xCell cell
-#'   types in rows and samples in columns.
-#' @param cell_types Named list defining the target cell types. Each element
-#'   contains one or more row names from `xCellScore`. When multiple xCell types
-#'   are provided for one target cell type, their scores are averaged.
-#' @param mu Numeric vector of target mean proportions. For multiple cell types,
-#'   its length must equal `length(cell_types)` and its values must sum to one.
-#'   When only one cell type is supplied, `mu` is its target mean proportion,
-#'   and an `"Others"` compartment with mean `1 - mu` is created automatically.
-#' @param lower Numeric lower boundary for the estimated proportions. It may be
-#'   a single value or one value per cell type. When only one cell type is
-#'   supplied, this is the lower boundary for that cell type, and the upper
-#'   boundary for `"Others"` is set to `1 - lower`.
-#' @param upper Numeric upper boundary for the estimated proportions. It may be
-#'   a single value or one value per cell type. When only one cell type is
-#'   supplied, this is the upper boundary for that cell type, and the lower
-#'   boundary for `"Others"` is set to `1 - upper`.
-#' @param tol Numeric convergence tolerance. Default is `1e-8`.
-#' @param max_iter Maximum number of calibration iterations. Default is `10000`.
-#' @param eps Small positive constant added to the xCell scores to prevent zero
-#'   values and division by zero. Default is `1e-8`.
+#' @param xCellScore A numeric matrix of xCell enrichment scores, with xCell
+#'   cell types in rows and samples in columns. The matrix must have row names.
+#' @param cell_types A list defining the target cell-type compartments. Each
+#'   element contains one or more row names of `xCellScore`. When multiple xCell
+#'   types are assigned to the same compartment, their scores are averaged
+#'   within each sample. If the list is named, its names are used as the output
+#'   column names; otherwise, names of the form `"Cell1"`, `"Cell2"`, and so on
+#'   are generated.
+#' @param mu A numeric vector specifying the target mean proportions. When
+#'   multiple compartments are supplied, its length must equal
+#'   `length(cell_types)`, all values must be positive, and the values must sum
+#'   to one within `tol`. When a single compartment is supplied, `mu` must be a
+#'   scalar strictly between zero and one; a complementary `"Others"`
+#'   compartment with target mean `1 - mu` is added automatically.
+#' @param lower Numeric lower bounds for the estimated proportions. For multiple
+#'   compartments, a scalar is applied to all compartments, and a vector is
+#'   recycled to `length(cell_types)`. For a single supplied compartment,
+#'   `lower` must be a scalar and the lower bound for `"Others"` is set to
+#'   `1 - upper`. Default is `0.01`.
+#' @param upper Numeric upper bounds for the estimated proportions. For multiple
+#'   compartments, a scalar is applied to all compartments, and a vector is
+#'   recycled to `length(cell_types)`. For a single supplied compartment,
+#'   `upper` must be a scalar and the upper bound for `"Others"` is set to
+#'   `1 - lower`. Default is `0.98`.
+#' @param tol Numeric convergence tolerance for the maximum deviation of the
+#'   estimated column means from `mu` and the row sums from one. Default is
+#'   `1e-8`.
+#' @param max_iter A positive integer specifying the maximum number of
+#'   calibration iterations. Default is `10000`.
+#' @param eps A small positive constant added to all nonnegative enrichment
+#'   scores to prevent zero values and division by zero. Default is `1e-8`.
 #'
-#' @return A numeric sample-by-cell-type matrix. Each row sums to one, every
-#'   estimated proportion satisfies its specified boundaries, and the column
-#'   means approximately equal `mu`. For a single target cell type, the output
-#'   contains the target cell type and `"Others"`.
+#' @return A numeric matrix with samples in rows and cell-type compartments in
+#'   columns. Each row sums to one, and each estimated proportion lies within
+#'   its corresponding lower and upper bounds. Upon convergence, the column
+#'   means equal the target proportions `mu` within `tol`.
+#'
+#'   When one target compartment is supplied, the output contains two columns:
+#'   the specified compartment and `"Others"`. Their target means are `mu` and
+#'   `1 - mu`, respectively.
 #'
 #' @details
-#' xCell scores are relative enrichment scores, not direct cell-type
-#' proportions. This function calibrates their sample-to-sample variation using
-#' externally specified mean proportions.
+#' xCell scores are relative enrichment scores rather than direct estimates of
+#' cell-type proportions. This function uses their sample-to-sample variation
+#' to construct prior composition estimates calibrated to externally specified
+#' population means.
 #'
-#' For each target cell type, the mean xCell score is calculated across its
-#' specified xCell populations. Negative scores are truncated to zero.
-#' Iterative proportional fitting and bounded normalization are then used to:
+#' For each target compartment and sample, the function averages the scores of
+#' the corresponding xCell populations using `na.rm = TRUE`. Negative scores
+#' are truncated to zero, and `eps` is added to all scores. When only one target
+#' compartment is supplied, the initial score for the complementary `"Others"`
+#' compartment is set to one in every sample.
+#'
+#' The function then alternates between:
 #'
 #' \enumerate{
-#'   \item match the specified mean composition across samples;
-#'   \item make the proportions sum to one within each sample; and
-#'   \item constrain each proportion between `lower` and `upper`.
+#'   \item scaling each compartment across samples toward its target mean; and
+#'   \item normalizing each sample to sum to one while enforcing the specified
+#'   lower and upper bounds.
 #' }
 #'
-#' The bounds and target means must be mutually compatible. Specifically, each
-#' target mean must lie within its corresponding bounds, the lower bounds must
-#' sum to no more than one, and the upper bounds must sum to at least one.
+#' Iteration stops when both the maximum deviation of the compartment means
+#' from `mu` and the maximum deviation of the sample totals from one are less
+#' than `tol`, or when `max_iter` is reached. A warning is issued if convergence
+#' is not achieved.
+#'
+#' The target means and bounds must be mutually compatible: every target mean
+#' must lie within its corresponding bounds, the lower bounds must sum to no
+#' more than one, and the upper bounds must sum to at least one. All xCell types
+#' listed in `cell_types` must be present in `rownames(xCellScore)`.
 #'
 #' @examples
-#' ## Three cell types
+#' xCellScore <- matrix(
+#'   c(
+#'     0.8, 0.6, 0.7, 0.9,
+#'     0.4, 0.5, 0.3, 0.6,
+#'     0.5, 0.4, 0.6, 0.3,
+#'     0.2, 0.3, 0.2, 0.4
+#'   ),
+#'   nrow = 4,
+#'   byrow = TRUE,
+#'   dimnames = list(
+#'     c("Epithelial cells", "Adipocytes",
+#'       "Preadipocytes", "Fibroblasts"),
+#'     paste0("Sample", 1:4)
+#'   )
+#' )
+#'
+#' ## Three target compartments
 #' cell_types <- list(
 #'   Epithelial = "Epithelial cells",
 #'   `Adipocytes/Preadipocytes` = c("Adipocytes", "Preadipocytes"),
@@ -69,7 +110,7 @@
 #' apply(pi_prior, 2, range)
 #' rowSums(pi_prior)
 #'
-#' ## One target cell type versus all other cells
+#' ## One target compartment versus all other cells
 #' pi_epithelial <- estimate_prior(
 #'   xCellScore = xCellScore,
 #'   cell_types = list(Epithelial = "Epithelial cells"),
@@ -159,80 +200,131 @@ estimate_prior <- function(xCellScore, cell_types, mu, lower = 0.01, upper = 0.9
 }
 
 
-
 #' Refine cell-type composition estimates using a K-component EM algorithm
 #'
+#' @description
 #' Refines prior sample-level cell-type composition estimates using bulk
-#' transcriptomic data. Each gene is represented as a weighted mixture of
-#' K latent cell-type-specific expression components.
+#' transcriptomic data and cell-type marker genes. Each marker gene is
+#' modelled as a mixture of K latent cell-type-specific expression
+#' components, whose means and variances are fitted by EM. Sample
+#' compositions are then updated by penalised maximum likelihood, with a
+#' cross-entropy penalty that shrinks them toward the prior. The two steps
+#' alternate until the compositions converge.
 #'
 #' @param expr Numeric N by G matrix of bulk expression values, with samples
-#'   in rows and genes in columns.
-#' @param composition Numeric N by K matrix containing initial cell-type
-#'   composition estimates. Each row must sum to one.
-#' @param max_outer Maximum number of outer EM iterations.
-#' @param max_inner Maximum number of gene-level EM iterations.
-#' @param tol_outer Convergence tolerance for the refined compositions.
-#' @param tol_inner Convergence tolerance for gene-level parameters.
-#' @param min_variance Lower bound for component variances.
-#' @param verbose Logical; print iteration information.
+#'   in rows and genes in columns. Column names (gene IDs) are required.
+#' @param composition Numeric N by K matrix of initial (prior) cell-type
+#'   compositions, with samples in rows and cell types in columns. Values
+#'   must be finite and nonnegative, and every row must have a positive sum.
+#'   Rows are rescaled to sum to one. If both \code{expr} and
+#'   \code{composition} have row names, they must contain the same samples,
+#'   and \code{composition} is reordered to match \code{expr}. If column
+#'   names are missing, cell types are named \code{"Cell1"},
+#'   \code{"Cell2"}, and so on. At least two cell types are required.
+#' @param marker_list Named list of character vectors giving the marker
+#'   genes for each cell type. Names must match \code{colnames(composition)}
+#'   (in any order). Only markers that are assigned to exactly one cell type
+#'   and are present in \code{colnames(expr)} are used; every cell type must
+#'   retain at least one such marker.
+#' @param max_outer Maximum number of outer iterations (alternating
+#'   gene-parameter and composition updates). Default \code{50L}.
+#' @param max_inner Maximum number of gene-level EM iterations within each
+#'   outer iteration. Default \code{200L}.
+#' @param tol_outer Convergence tolerance for the compositions: the
+#'   algorithm stops when the maximum absolute change in any composition
+#'   value between outer iterations falls below this. Default \code{0.01}.
+#' @param tol_inner Convergence tolerance for gene-level EM: the maximum
+#'   absolute change in component means and variances. Default \code{0.01}.
+#' @param min_variance Lower bound for component variances, also used as
+#'   the threshold for removing zero-variance genes. Default \code{1e-8}.
+#' @param prior_strength Nonnegative weight \eqn{\lambda} of the
+#'   cross-entropy penalty \eqn{-\lambda \sum_k \pi^{(0)}_{ik}
+#'   \log \pi_{ik}} that shrinks each sample's composition toward its prior.
+#'   Larger values keep estimates closer to \code{composition}. It is fixed,
+#'   not estimated. Default \code{10}.
+#' @param minor_power Exponent used to upweight markers of low-abundance
+#'   cell types: cell type weights are proportional to
+#'   \code{mean_composition^(-minor_power)}. Use \code{0} for no
+#'   upweighting. Default \code{0.5}.
+#' @param max_cell_weight Upper cap on the raw cell type weight before
+#'   normalisation. Default \code{3}.
+#' @param marker_margin Minimum amount by which a marker's own cell-type
+#'   component mean must exceed the largest mean of the other components
+#'   (on the standardised scale). Enforced after every M-step. Default
+#'   \code{0.05}.
+#' @param optim_maxit Maximum number of BFGS iterations in each per-sample
+#'   composition update. Default \code{100L}.
+#' @param verbose Logical; if \code{TRUE}, print the retained marker counts,
+#'   cell type weights and per-iteration composition changes. Default
+#'   \code{TRUE}.
+#'
+#' @details
+#' \strong{Gene selection and weighting.} Only marker genes are modelled.
+#' Markers shared by more than one cell type, markers absent from
+#' \code{expr}, and genes with non-finite values or standard deviation
+#' \eqn{\le} \code{min_variance} are removed. Each remaining gene is
+#' standardised across samples. Gene weights balance total marker evidence
+#' across cell types (each type's weight is divided by its number of
+#' markers) and upweight minor cell types via \code{minor_power} and
+#' \code{max_cell_weight}; weights are normalised to mean one.
+#'
+#' \strong{Gene-level step.} For each gene, the bulk value in sample
+#' \eqn{n} is modelled as \eqn{\sum_k \pi_{nk} Y_{nk}} with
+#' \eqn{Y_{nk} \sim N(\mu_k, \sigma^2_k)}. Component means and variances
+#' are fitted by EM, initialised in the first outer iteration from
+#' composition-weighted means and the gene's overall variance, and warm
+#' started thereafter. The marker's own component is constrained to have
+#' the largest mean (by at least \code{marker_margin}).
+#'
+#' \strong{Composition step.} Each sample's composition is updated by
+#' minimising the weighted Gaussian negative log-likelihood (mean
+#' \eqn{\sum_k \pi_k \mu_k}, variance \eqn{\sum_k \pi_k^2 \sigma^2_k})
+#' plus the cross-entropy prior penalty, using BFGS on an additive
+#' log-ratio parameterisation so estimates stay on the simplex. If the
+#' optimisation fails for a sample, its previous composition is kept.
+#'
+#' This function relies on the internal helpers \code{Estep.K()},
+#' \code{Mstep.K()} and \code{additive_logistic()}.
 #'
 #' @return A list containing:
 #' \describe{
-#'   \item{Ecomposition}{Refined N by K cell-type composition matrix.}
+#'   \item{Ecomposition}{Refined N by K cell-type composition matrix; rows
+#'     sum to one, with sample and cell type names as dimnames.}
 #'   \item{paraM}{Array of dimension G by K by 2 containing the fitted
-#'     component means and variances.}
-#'   \item{concentration}{Estimated Dirichlet concentration parameter.}
-#'   \item{convergence}{Character string describing convergence.}
+#'     component means (\code{"mean"}) and variances (\code{"variance"}) on
+#'     the standardised scale, for the G retained marker genes.}
+#'   \item{marker_owner}{Named character vector giving the cell type each
+#'     retained marker gene belongs to.}
+#'   \item{gene_weight}{Named numeric vector of gene weights used in the
+#'     likelihood.}
+#'   \item{cell_weight}{Named numeric vector of normalised cell type
+#'     weights.}
+#'   \item{convergence}{\code{"P converged"} or \code{"P not converged"}.}
 #'   \item{iterations}{Number of outer iterations performed.}
 #'   \item{time}{Processing time reported by \code{proc.time}.}
 #' }
 #'
-#' @importFrom foreach foreach
-#' @importFrom foreach %dopar%
-#' @importFrom stats optim var
+#' @seealso \code{\link{pi_estimation_K}} for repeated subsampling and
+#'   averaging of these estimates.
+#'
+#' @examples
+#' \dontrun{
+#' fit <- deNet_composition_K_once(
+#'   expr        = t(expr_matrix),   # samples x genes
+#'   composition = prior_matrix,     # samples x cell types
+#'   marker_list = list(
+#'     Tcell  = c("CD3D", "CD3E"),
+#'     Bcell  = c("CD79A", "MS4A1"),
+#'     Mono   = c("CD14", "LYZ")
+#'   ),
+#'   prior_strength = 10
+#' )
+#' head(fit$Ecomposition)
+#' fit$convergence
+#' }
+#'
+#' @importFrom stats optim sd var setNames
 #' @export
-
-
-
-
-
-
-## ============================================================
-## Helper functions
-## ============================================================
-
-# Single-core K-cell-type composition estimation
-
-Estep.K <- function(mu, sigma2, X, P, P2 = P^2, min_variance = 1e-8) {
-  N <- nrow(P)
-  sigma_mat <- rep(sigma2, each = N)
-  U <- drop(P %*% mu)
-  V <- pmax(drop(P2 %*% sigma2), min_variance)
-  adjustment <- P * sigma_mat
-  EY <- adjustment * ((X - U) / V) + rep(mu, each = N)
-  conditional_variance <- pmax(sigma_mat - adjustment^2 / V, min_variance)
-  list(EY = EY, EY2 = conditional_variance + EY^2)
-}
-
-Mstep.K <- function(EY, EY2, min_variance = 1e-8) {
-  mu <- colMeans(EY)
-  sigma2 <- pmax(colMeans(EY2) - mu^2, min_variance)
-  list(mu = mu, sigma2 = sigma2)
-}
-
-additive_logistic <- function(theta) {
-  z <- c(theta, 0)
-  z <- exp(z - max(z))
-  z / sum(z)
-}
-
-# max_outer = 50L; max_inner = 200L;
-# tol_outer = 0.01; tol_inner = 0.01;
-# min_variance = 1e-8; prior_strength = 10;
-# minor_power = 0.5; max_cell_weight = 3;
-# marker_margin = 0.05; optim_maxit = 100L;
-# verbose = TRUE
 deNet_composition_K_once <- function( expr, composition, marker_list, max_outer = 50L, max_inner = 200L, tol_outer = 0.01, tol_inner = 0.01,
     min_variance = 1e-8, prior_strength = 10, minor_power = 0.5, max_cell_weight = 3, marker_margin = 0.05, optim_maxit = 100L, verbose = TRUE) {
 
@@ -441,7 +533,84 @@ deNet_composition_K_once <- function( expr, composition, marker_list, max_outer 
   )
 }
 
-# Bootstrap aggregation. Input expr is genes x samples; output is samples x types.
+#' Estimate cell-type composition by repeated subsampling
+#'
+#' @description
+#' Estimates the cell-type composition (proportions) of each sample by
+#' repeatedly fitting \code{deNet_composition_K_once()} to random subsets of
+#' samples, then combining the per-iteration estimates with a trimmed mean.
+#' The combined proportions are renormalised so that each sample's row sums
+#' to 1.
+#'
+#' @param expr A numeric matrix (or object coercible with \code{as.matrix()})
+#'   of expression values with genes in rows and samples in columns. Column
+#'   names (sample IDs) are required.
+#' @param n_iteration Integer. Number of subsampling iterations to run.
+#' @param prior A numeric matrix (or coercible object) of prior cell-type
+#'   compositions with samples in rows and cell types in columns. If it has
+#'   row names, they must include every sample in \code{colnames(expr)};
+#'   rows are reordered to match \code{expr}, and extra samples are dropped.
+#'   If it has no row names, it must have exactly \code{ncol(expr)} rows in
+#'   the same order as the columns of \code{expr}.
+#' @param marker_list A list of marker genes for each cell type, passed to
+#'   \code{deNet_composition_K_once()}.
+#' @param seed Integer. Random seed set with \code{set.seed()} before
+#'   subsampling, so results are reproducible. Default \code{1}.
+#' @param sample_fraction Numeric in (0, 1]. Fraction of samples drawn
+#'   (without replacement) in each iteration; the subset size is
+#'   \code{round(ncol(expr) * sample_fraction)}. Default \code{0.8}.
+#' @param trim Numeric in [0, 0.5). Fraction of observations trimmed from
+#'   each end when averaging a sample's estimates across iterations, passed
+#'   to \code{mean(..., trim = trim)}. Default \code{0.05}.
+#' @param ... Additional arguments passed to
+#'   \code{deNet_composition_K_once()}.
+#'
+#' @details
+#' In each iteration the function:
+#' \enumerate{
+#'   \item draws a random subset of samples;
+#'   \item removes genes that contain non-finite values or have near-zero
+#'     variance (standard deviation \eqn{\le 10^{-8}}) within that subset;
+#'   \item calls \code{deNet_composition_K_once()} with the transposed
+#'     expression subset (samples in rows, genes in columns) and the matching
+#'     rows of \code{prior};
+#'   \item stores the returned \code{Ecomposition} matrix.
+#' }
+#' Iterations in which \code{deNet_composition_K_once()} throws an error are
+#' skipped with a warning; the function stops only if every iteration fails.
+#'
+#' For each sample and cell type, the final value is the trimmed mean of the
+#' finite estimates from the iterations in which that sample was drawn.
+#' Samples never drawn, or with no finite estimates, are returned as
+#' \code{NA}. Rows with no missing values and a positive sum are rescaled to
+#' sum to 1; other rows are returned unscaled.
+#'
+#' Note that \code{set.seed()} changes the global random number generator
+#' state as a side effect.
+#'
+#' @return A numeric matrix with one row per sample (row names from
+#'   \code{colnames(expr)}) and one column per cell type (column names from
+#'   \code{colnames(prior)}), containing the estimated cell-type proportions.
+#'
+#' @seealso \code{\link{deNet_composition_K_once}}
+#'
+#' @examples
+#' \dontrun{
+#' est <- pi_estimation_K(
+#'   expr            = expr_matrix,   # genes x samples
+#'   n_iteration     = 50,
+#'   prior           = prior_matrix,  # samples x cell types
+#'   marker_list     = markers,
+#'   seed            = 123,
+#'   sample_fraction = 0.8,
+#'   trim            = 0.05
+#' )
+#' head(est)
+#' rowSums(est)
+#' }
+#'
+#' @importFrom stats sd complete.cases
+#' @export
 pi_estimation_K <- function(
     expr, n_iteration, prior, marker_list, seed = 1,
     sample_fraction = 0.8, trim = 0.05, ...) {
@@ -507,81 +676,32 @@ pi_estimation_K <- function(
 
 
 
-pi_estimation_K <- function(expr, n_iteration, prior, marker_list,
-                            seed = 1, sample_fraction = 0.8,
-                            trim = 0.05, ...) {
-  set.seed(seed)
+## ============================================================
+## Helper functions
+## ============================================================
 
-  expr <- as.matrix(expr)
-  prior <- as.matrix(prior)
+# Single-core K-cell-type composition estimation
 
-  stopifnot(ncol(expr) == nrow(prior))
-
-  if (is.null(colnames(expr))) stop("expr must have sample names as column names.")
-
-  if (!is.null(rownames(prior))) {
-    prior <- prior[colnames(expr), , drop = FALSE]
-  } else { rownames(prior) <- colnames(expr)}
-
-  if (is.null(colnames(prior)))  colnames(prior) <- paste0("Cell", seq_len(ncol(prior)))
-
-  estimates <- vector("list", n_iteration)
-  n_sample <- round(ncol(expr) * sample_fraction)
-
-  for (i in seq_len(n_iteration)) {
-
-    sample_index <- sample(seq_len(ncol(expr)), n_sample, replace = FALSE)
-
-    fit <- try(
-      deNet_composition_K_once(
-        expr = t(expr[, sample_index, drop = FALSE]),
-        composition = prior[sample_index, , drop = FALSE],
-        marker_list=marker_list,
-        ...
-      ),
-      silent = F
-    )
-
-    if (inherits(fit, "try-error")) {
-      warning("Iteration ", i, " failed.")
-      next
-    }
-
-    estimates[[i]] <- fit$Ecomposition
-    message("Finished iteration ", i)
-  }
-
-  estimates <- estimates[!vapply(estimates, is.null, logical(1))]
-
-  if (!length(estimates))
-    stop("deNet_composition_K_once() failed in every iteration.")
-
-  sample_names <- colnames(expr)
-  cell_names <- colnames(prior)
-
-  result <- matrix(
-    NA_real_,
-    nrow = length(sample_names),
-    ncol = length(cell_names),
-    dimnames = list(sample_names, cell_names)
-  )
-
-  for (s in sample_names) {
-    for (k in cell_names) {
-      values <- vapply(estimates, function(P) {
-        if (s %in% rownames(P)) P[s, k] else NA_real_
-      }, numeric(1))
-
-      values <- values[is.finite(values)]
-
-      if (length(values))
-        result[s, k] <- mean(values, trim = trim)
-    }
-  }
-
-  # Renormalize each sample to sum to one
-  valid <- complete.cases(result) & rowSums(result) > 0
-  result[valid, ] <- result[valid, , drop = FALSE] / rowSums(result[valid, , drop = FALSE])
-
-  result
+Estep.K <- function(mu, sigma2, X, P, P2 = P^2, min_variance = 1e-8) {
+  N <- nrow(P)
+  sigma_mat <- rep(sigma2, each = N)
+  U <- drop(P %*% mu)
+  V <- pmax(drop(P2 %*% sigma2), min_variance)
+  adjustment <- P * sigma_mat
+  EY <- adjustment * ((X - U) / V) + rep(mu, each = N)
+  conditional_variance <- pmax(sigma_mat - adjustment^2 / V, min_variance)
+  list(EY = EY, EY2 = conditional_variance + EY^2)
 }
+
+Mstep.K <- function(EY, EY2, min_variance = 1e-8) {
+  mu <- colMeans(EY)
+  sigma2 <- pmax(colMeans(EY2) - mu^2, min_variance)
+  list(mu = mu, sigma2 = sigma2)
+}
+
+additive_logistic <- function(theta) {
+  z <- c(theta, 0)
+  z <- exp(z - max(z))
+  z / sum(z)
+}
+
