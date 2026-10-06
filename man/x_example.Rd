@@ -5,15 +5,17 @@
 \alias{x_example}
 \title{Example genotype matrix}
 \format{
-A numeric matrix.
+An integer matrix of dosages (0, 1, 2) with 20 samples in rows
+(\code{Sample1}, \ldots, \code{Sample20}) and 10 SNPs in columns
+(\code{SNP1}, \ldots, \code{SNP10}).
 }
 \source{
-Included with the ctOWAS package.
+Simulated example data.
 }
 \usage{
 x_example
 }
 \description{
-A small toy genotype matrix (samples x SNPs) used in the README.
+A small simulated genotype dosage matrix used in the README and examples.
 }
 \keyword{datasets}

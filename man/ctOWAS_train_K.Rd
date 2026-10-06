@@ -12,6 +12,7 @@ ctOWAS_train_K(
   xNameMatrix = NULL,
   yName = NULL,
   foldid = NULL,
+  No_split = 11,
   alpha = 0.5,
   seed = NULL
 )
@@ -42,6 +43,9 @@ the fitted model.}
 \item{foldid}{Optional integer vector of length N assigning samples to
 cross-validation folds. If \code{NULL} (default), random 10-fold
 assignments are generated.}
+
+\item{No_split}{Number of splits for evaulation FDR. A small integer should
+give fairly robust results. Default No_split = 11.}
 
 \item{alpha}{Elastic-net mixing parameter passed to \code{glmnet}; \code{0}
 is ridge and \code{1} is lasso. Default \code{0.5}.}

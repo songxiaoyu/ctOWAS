@@ -5,16 +5,22 @@
 \alias{gwas_example}
 \title{Example GWAS summary statistics}
 \format{
-A list with elements \code{Beta} and \code{se_Beta}.
+A list with two named numeric vectors of length 10 (names
+\code{SNP1}, \ldots, \code{SNP10}):
+\describe{
+\item{Beta}{Estimated SNP effect sizes.}
+\item{se_Beta}{Standard errors of \code{Beta}.}
+}
 }
 \source{
-Included with the ctOWAS package.
+Simulated example data.
 }
 \usage{
 gwas_example
 }
 \description{
-A minimal list containing GWAS effect sizes and standard errors for the SNPs
-in \code{x_example}.
+GWAS effect sizes and standard errors for the 10 SNPs in
+\code{\link{x_example}}. Use \code{Beta / se_Beta} as
+\code{gwas_z_score} in \code{\link{ctOWAS_assoc_test_K}}.
 }
 \keyword{datasets}

@@ -1,45 +1,45 @@
 Package: ctOWAS
 Type: Package
-Title: Multi-Cell-Specific OWAS
+Title: Cell-Type-Level Omics-Wide Association Studies
 Version: 0.1.0
 Authors@R: c(
-      person(given = "Sinan",
-             family = "Zhu",
-             role = c("aut", "cre"),
-             email = "sinan.zhu@u.duke.nus.edu"),
-      person(given = "Xiaoyu",
-             family = "Song",
-             role = "ths"))
-Author: Sinan Zhu [aut, cre],
-    Xiaoyu Song [ths]
-Maintainer: Sinan Zhu <sinan.zhu@u.duke.nus.edu>
-Description: 
-    ctOWAS provides a multi-cell-type-aware transcriptome-wide association studies (TWAS). 
-    The package integrates bulk expression data with estimated cell-type 
-    proportions, enabling the decomposition of genetic effects into shared and 
-    cell-type-specific components across K cell types.  
-    It includes tools for estimating cell-type fractions, and performing cell-type-resolved association analysis. 
-    The methodology extends MiXcan to allow simultaneous modeling of multiple 
-    biological cell types, improving interpretability and statistical power in 
-    TWAS of complex tissues.
+    person(given = "Sinan",
+           family = "Zhu",
+           role = c("aut", "cre"),
+           email = "sinan.zhu@u.duke.nus.edu"),
+    person(given = "Xiaoyu",
+           family = "Song",
+           role = "ths",
+           email = "song.xiaoyu@duke-nus.edu.sg"))
+Description: Performs cell-type-level omics-wide association studies (OWAS)
+    for molecular traits measured in bulk tissue, such as gene expression or
+    protein abundance. Bulk molecular traits are modelled as a mixture of K
+    cell types, so that genetic prediction weights can be estimated separately
+    for each cell type. The package provides tools to (1) estimate sample-level
+    cell-type fractions from xCell enrichment scores, bulk expression and
+    marker genes; (2) train cell-type-specific elastic-net prediction models
+    with split-sample stability screening; and (3) test cell-type-specific and
+    joint associations using GWAS summary statistics and a linkage
+    disequilibrium reference panel, combining p-values across cell types with
+    the aggregated Cauchy association test (ACAT). The method extends MiXcan
+    to more than two cell types.
 URL: https://github.com/songxiaoyu/ctOWAS
 BugReports: https://github.com/songxiaoyu/ctOWAS/issues
 License: GPL-3
 Encoding: UTF-8
 LazyData: true
-Depends: R (>= 4.0)
+Depends:
+    R (>= 4.1.0)
 Imports:
-    BayesDeBulk,
-    glmnet,
-    tibble,
-    dplyr,
     ACAT,
-    doParallel,
-    foreach
+    glmnet,
+    stats,
+    utils
 Suggests:
-    devtools,
+    matrixStats,
     roxygen2,
-    knitr,
-    rmarkdown
+    usethis
+Remotes:
+    yaowuliu/ACAT
 Roxygen: list(markdown = TRUE)
 Config/roxygen2/version: 8.1.0

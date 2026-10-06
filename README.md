@@ -37,7 +37,7 @@ installation.
 
 ## Installation
 
-`ctOWAS` requires R ≥ 4.0. Install the dependencies first:
+`ctOWAS` requires R ≥ 4.1. Install the dependencies first:
 
 ```r
 install.packages(c("remotes", "glmnet", "matrixStats"))

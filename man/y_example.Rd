@@ -3,17 +3,20 @@
 \docType{data}
 \name{y_example}
 \alias{y_example}
-\title{Example gene expression vector}
+\title{Example molecular trait vector}
 \format{
-A numeric vector.
+A named numeric vector of length 20 (names \code{Sample1}, \ldots,
+\code{Sample20}).
 }
 \source{
-Included with the ctOWAS package.
+Simulated example data.
 }
 \usage{
 y_example
 }
 \description{
-A small toy expression vector for one gene (length = samples).
+A simulated molecular trait (e.g. expression of one gene) for the 20
+samples in \code{\link{x_example}}, for use as \code{y} in
+\code{\link{ctOWAS_train_K}}.
 }
 \keyword{datasets}

@@ -5,15 +5,24 @@
 \alias{GeneXCell}
 \title{Cell-type marker gene reference}
 \format{
-A data frame containing cell-type marker genes.
+A data frame with 489 rows and 202 columns:
+\describe{
+\item{Celltype_Source_ID}{Signature identifier (cell type, source and
+replicate, e.g. \code{"aDC_HPCA_1"}).}
+\item{# of genes}{Number of marker genes in the signature.}
+\item{V3, \ldots, V202}{Marker gene symbols; unused cells are empty
+strings.}
+}
 }
 \source{
-Aran et al. (2017)
+Aran D, Hu Z, Butte AJ (2017). xCell: digitally portraying the
+tissue cellular heterogeneity landscape. \emph{Genome Biology} 18, 220.
 }
 \usage{
 GeneXCell
 }
 \description{
-Marker-gene sets compiled from Aran et al. (2017).
+Marker-gene sets for 489 cell-type signatures, compiled from Aran et al.
+(2017), the reference used by xCell.
 }
 \keyword{datasets}

@@ -5,25 +5,22 @@
 \alias{pi_k}
 \title{Example cell-type fraction matrix (2 cell types)}
 \format{
-A numeric matrix with:
-\describe{
-\item{rows}{20 samples (Sample1–Sample20)}
-\item{columns}{2 cell types: Cell1 and Cell2}
-}
+A numeric matrix with 20 samples in rows (\code{Sample1}, \ldots,
+\code{Sample20}) and 2 cell types in columns (\code{Cell1},
+\code{Cell2}). Rows sum to 1.
 }
 \source{
-Simulated example data
+Simulated example data.
 }
 \usage{
 pi_k
 }
 \description{
-A small example cell-type fraction matrix used in the README
-demonstration. Each row corresponds to a sample and each column
-corresponds to a cell type. Rows approximately sum to 1.
+A simulated cell-type fraction matrix used in the README and examples,
+for use as \code{pi_k} in \code{\link{ctOWAS_train_K}}.
 }
 \details{
-This dataset is artificially generated for demonstration purposes.
-It is not intended for biological interpretation.
+This dataset is artificially generated for demonstration purposes and is
+not intended for biological interpretation.
 }
 \keyword{datasets}

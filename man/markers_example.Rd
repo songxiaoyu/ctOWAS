@@ -5,15 +5,19 @@
 \alias{markers_example}
 \title{Example marker gene list}
 \format{
-A named list of character vectors.
+A named list of two character vectors, \code{CellType1}
+(\code{Gene1}--\code{Gene3}) and \code{CellType2}
+(\code{Gene4}--\code{Gene6}). Genes are row names of
+\code{\link{exprB_example}}.
 }
 \source{
-Included with the ctOWAS package.
+Simulated example data.
 }
 \usage{
 markers_example
 }
 \description{
-Marker genes for each cell type used by \code{pi_estimation_K()}.
+Marker genes for two cell types, for use as \code{marker_list} in
+\code{\link{pi_estimation_K}}.
 }
 \keyword{datasets}

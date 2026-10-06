@@ -5,15 +5,17 @@
 \alias{exprB_example}
 \title{Example bulk expression matrix}
 \format{
-A numeric matrix with genes in rows and samples in columns.
+A numeric matrix with 50 genes in rows (\code{Gene1}, \ldots,
+\code{Gene50}) and 20 samples in columns (\code{Sample1}, \ldots,
+\code{Sample20}).
 }
 \source{
-Included with the ctOWAS package.
+Simulated example data.
 }
 \usage{
 exprB_example
 }
 \description{
-A small toy bulk expression matrix (genes x samples) used in the README.
+A small simulated bulk expression matrix used in the README and examples.
 }
 \keyword{datasets}

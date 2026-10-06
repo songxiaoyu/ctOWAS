@@ -3,18 +3,25 @@
 \docType{data}
 \name{merged_example}
 \alias{merged_example}
-\title{Example merged table for PRIMO post-processing}
+\title{Example merged results table}
 \format{
-A data.frame.
+A data frame with 300 rows (genes) and 5 columns:
+\describe{
+\item{gene}{Gene identifier.}
+\item{type_ct2}{Cell-type specificity label (e.g.
+\code{"CellTypeSpecific"}).}
+\item{p_1_ct2, p_2_ct2}{Marginal p-values for cell types 1 and 2.}
+\item{p_join_ct2}{Joint p-value across the two cell types.}
+}
 }
 \source{
-Included with the ctOWAS package.
+Simulated example data.
 }
 \usage{
 merged_example
 }
 \description{
-A toy results table with marginal p-values per cell type, a joint p-value, and
-a specificity label, used to demonstrate \code{infer_celltype_patterns()}.
+A toy results table with marginal p-values for each cell type, a joint
+p-value and a cell-type specificity label.
 }
 \keyword{datasets}
