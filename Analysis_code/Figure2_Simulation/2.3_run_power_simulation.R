@@ -22,7 +22,7 @@ X_pool <- data.table::fread(file.path(paper_dir, "Data", "Simulation", "chr22_20
 
 # Simulation settings ---------------------------------------------------------
 
-n_replicates <- as.integer(Sys.getenv("ctOWAS_POWER_N_REPLICATES", unset = "500"))
+n_replicates <- as.integer(Sys.getenv("ctOWAS_POWER_N_REPLICATES", unset = "1000"))
 workers <- as.integer(Sys.getenv("ctOWAS_POWER_WORKERS", unset = "5"))
 n_train <- as.integer(Sys.getenv("ctOWAS_POWER_N_TRAIN", unset = "300"))
 n_test <- as.integer(Sys.getenv("ctOWAS_POWER_N_TEST", unset = "3000"))

@@ -18,8 +18,8 @@ variant_key <- function(chr, pos, ref, alt) paste(chr, pos, toupper(ref), touppe
 # 1. Load three-cell-type ctOWAS weights into an isolated environment.
 models <- new.env()
 load(file.path(results_dir, "GTEx_Breast_pi3_Comparison.RData"), envir = models)
-if (!exists("filtered_weights_s_3ct", models, inherits = FALSE)) stop("Missing filtered_weights_s_3ct.")
 w <- as.data.table(models$filtered_weights_s_3ct)
+
 stopifnot(all(c("gene", "varID", "ref_allele", "eff_allele", weight_cols) %in% names(w)))
 w <- w[, c("gene", "varID", "ref_allele", "eff_allele", weight_cols), with = FALSE]
 if (!all(vapply(w[, ..weight_cols], is.numeric, logical(1)))) stop("Weight columns must be numeric.")

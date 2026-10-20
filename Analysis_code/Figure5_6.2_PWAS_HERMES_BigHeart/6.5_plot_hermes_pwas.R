@@ -18,13 +18,9 @@ figure_dir <- file.path(paper_dir, "Figure")
 dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
 fdr_cutoff <- 0.1
 
-if (!file.exists(result_table)) stop("Missing combined HERMES result table: ", result_table, call. = FALSE)
+
 tab <- fread(result_table)
-required_cols <- c("gene_id", "gene_name", "p_join", "p_cardiomyocytes", "p_other")
-missing_cols <- setdiff(required_cols, names(tab))
-if (length(missing_cols)) stop("Missing columns: ", paste(missing_cols, collapse = ", "), call. = FALSE)
-if (!nrow(tab)) stop("The HERMES result table is empty.", call. = FALSE)
-if (anyNA(tab$gene_id) || anyDuplicated(tab$gene_id)) stop("Expected one row per nonmissing gene_id.", call. = FALSE)
+
 
 valid_p <- function(p) is.finite(p) & p >= 0 & p <= 1
 adjust_p <- function(p, method = "BH") {
@@ -32,10 +28,23 @@ adjust_p <- function(p, method = "BH") {
   out[keep] <- p.adjust(p[keep], method = method)
   out
 }
-tab[, `:=`(fwer_p_joint = adjust_p(p_join, "bonferroni"), fdr_p_joint = adjust_p(p_join),
-           fdr_cardiomyocytes = adjust_p(p_cardiomyocytes), fdr_other = adjust_p(p_other))]
+tab[, `:=`(fwer_cardiomyocytes = adjust_p(p_cardiomyocytes, "bonferroni"), fwer_other = adjust_p(p_other, "bonferroni"),
+           fwer_joint = adjust_p(p_join, "bonferroni"), fdr_joint = adjust_p(p_join),
+           fdr_cardiomyocytes = adjust_p(p_cardiomyocytes), fdr_other = adjust_p(p_other)
+           ),]
+# Supplementary Table 1 ----------
+TableS1 <- tab[, c(
+  "gene_id", "gene_name", "chr", "input_snp_num",
+  "Z_cardiomyocytes", "p_cardiomyocytes", "Z_other", "p_other",
+  "p_join", "fwer_cardiomyocytes", "fwer_other", "fwer_joint", "fdr_cardiomyocytes", "fdr_other",
+  "fdr_joint"
+)]
+
+names(TableS1) <- sub("_other$", "_noncardiomyocytes", names(TableS1))
+writexl::write_xlsx(TableS1, "Github/result/TableS1.xlsx")
 
 
+# plot ----------------
 make_qq_plot <- function(tab) {
   qq <- copy(tab[valid_p(p_join)])
   if (!nrow(qq)) stop("No valid joint p-values for QQ plot.", call. = FALSE)

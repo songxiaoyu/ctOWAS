@@ -14,12 +14,13 @@ drive_geno_dir <- file.path('/Users/songxiaoyu152/NUS Dropbox/Xiaoyu Song/Densit
 
 
 
-# Weights
+# Load weights and clean -----------
 load(file.path(results_dir, "GTEx_Breast_pi2_ThreeModel_Summary.RData"))
-merge_keys <- c("gene", "rsid", "varID", "ref_allele", "eff_allele")
+# filtered_intercept_s;filtered_weights_s; filtered_intercept_m_new; filtered_weights_m_new;  filtered_intercept_m_old; filtered_weights_m_old; filtered_weights_p
 
-mw_input <- list(
-  filtered_weights_s %>% dplyr::rename(ctOWAS_Cell1 = Cell1, ctOWAS_Cell2 = Cell2),
+merge_keys <- c("gene", "rsid", "varID", "ref_allele", "eff_allele")
+# merge input
+mw_input <- list(filtered_weights_s %>% dplyr::rename(ctOWAS_Cell1 = Cell1, ctOWAS_Cell2 = Cell2),
   filtered_weights_m_new %>% dplyr::rename(MiXcan_Cell1 = Cell1, MiXcan_Cell2 = Cell2),
   filtered_weights_p %>% dplyr::rename(PrediXcan_tissue = tissue)
 ) %>%

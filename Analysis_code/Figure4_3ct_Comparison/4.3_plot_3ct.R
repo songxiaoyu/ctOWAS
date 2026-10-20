@@ -21,26 +21,46 @@ base_font <- 12
 # 1. Load data and calculate statistics
 # ==============================================================================
 dat2 <- read.csv(file.path(results_dir, "DRIVE_four_models_all_chr.csv"))
-
 dat3 <- read.csv(file.path(results_dir, "DRIVE_ctOWAS_3ct_all_chr.csv"))
 sum(dat3$fdr_o<0.1, na.rm=T)
 
-# Calculate FWER using all valid tests in each dataset
-prep <- function(dat) {
-  dat %>% filter(is.finite(p_o), p_o >= 0, p_o <= 1) %>%
-    mutate(gene_stable_id = sub("\\..*$", "", Gene_ID), FWER = p.adjust(p_o, "bonferroni")) %>%
-    select(gene_stable_id, p_o, FWER)
-}
-d2 <- prep(dat2)
-d3 <- prep(dat3)
-stopifnot(!anyDuplicated(d2$gene_stable_id), !anyDuplicated(d3$gene_stable_id))
+
 # Gene annotation
-ensembl38 <- readr::read_csv(file.path(data_dir, "ensembl38.txt"), show_col_types = FALSE) %>%
+ensembl38 <- readr::read_csv(
+  file.path(data_dir, "ensembl38.txt"),
+  show_col_types = FALSE
+) %>%
   janitor::clean_names() %>%
-  transmute(gene_stable_id = sub("\\..*$", "", gene_stable_id), gene_name = trimws(gene_name)) %>%
+  mutate(
+    gene_stable_id = sub("\\..*$", "", gene_stable_id),
+    gene_name = trimws(gene_name),
+    cytoband = paste0(chromosome_scaffold_name, karyotype_band)
+  ) %>%
   filter(!is.na(gene_name), gene_name != "") %>%
   group_by(gene_stable_id) %>%
-  summarise(gene_name = paste(sort(unique(gene_name)), collapse = "/"), .groups = "drop")
+  summarise(
+    gene_name = paste(sort(unique(gene_name)), collapse = "/"),
+    cytoband = first(cytoband),
+    .groups = "drop"
+  )
+#
+
+d2 <- dat2%>%select(Gene_ID, p_o_1, p_o_2, p_o) %>%
+  mutate(FWER = p.adjust(p_o, method = "bonferroni"))
+d3 <- dat3%>%select(Gene_ID, p_o_1, p_o_2, p_o_3, p_o)%>%
+  mutate(FWER = p.adjust(p_o, method = "bonferroni"))
+dat_merge1=d2 %>% full_join(d3, by=c("Gene_ID"))%>%mutate(
+  gene_stable_id = sub("\\..*$", "", Gene_ID))
+dat_merge=ensembl38 %>% right_join(dat_merge1)
+
+dat_merge[which(dat_merge$gene_name=="SLC4A7"),]
+
+# gene_stable_id  gene_name cytoband Gene_ID            p_o_1.x p_o_2.x p_o.x FWER.x  p_o_1.y p_o_2.y p_o_3    p_o.y   FWER.y
+# <chr>           <chr>     <chr>    <chr>                <dbl>   <dbl> <dbl>  <dbl>    <dbl>   <dbl> <dbl>    <dbl>    <dbl>
+#   1 ENSG00000033867 SLC4A7    3p24.1   ENSG00000033867.16      NA      NA    NA     NA 1.03e-13      NA    NA 1.03e-13 5.77e-10
+
+# Table S
+write.csv(dat_merge,file.path("/Users/songxiaoyu152/NUS Dropbox/Xiaoyu Song/Density_Song/Paper_PWAS/Github/result/TableS2.csv"),row.names = FALSE)
 
 # ==============================================================================
 # 1. Plot QQ

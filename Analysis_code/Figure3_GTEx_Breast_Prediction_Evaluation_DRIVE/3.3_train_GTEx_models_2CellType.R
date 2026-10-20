@@ -20,7 +20,6 @@ setwd("/Users/songxiaoyu152/NUS Dropbox/Xiaoyu Song/Density_Song/Paper_PWAS")
 paper_dir <- getwd()
 results_dir <- file.path(paper_dir, "Results")
 
-source('/Users/songxiaoyu152/NUS Dropbox/Xiaoyu Song/Density_Song/Paper_PWAS/Github/R/ctOWAS_train_k.R')
 
 # ------------------------------------------------------------------------------
 # 2. Gene-by-gene model training

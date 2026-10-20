@@ -1,16 +1,8 @@
 # Run ctOWAS association for HERMES DCM using PWAS heart-protein weights.
-#
-# Inputs from previous steps:
-#   2_HERMES_prepare_data_pwas.R:
-#     Results/hermes_pwas/hermes_workspace_moderate_100kb_r2_0.99_alpha0.5_lambdamin/hermes_input/*.rds
-#   3_1000Genome_keep_eur_plink_hermes_pwas.sh:
-#     Results/hermes_pwas/hermes_workspace_moderate_100kb_r2_0.99_alpha0.5_lambdamin/hermes_filtered_id/*.bim/*.raw
-#
 # HERMES DCM is treated as a binary trait by default.
 # Provided counts:
 #   cases    = 14256
 #   controls = 1199156
-# This active version uses the package-level association function directly.
 
 library(data.table)
 library(ctOWAS)
@@ -99,24 +91,13 @@ run_gene <- function(gene_id, selected, X_ref, chr) {
 for (chr in chr_list) {
   cat("Processing chromosome", chr, "\n")
   result_path <- file.path(result_dir, sprintf("hermes_chr%d_result_pwas.csv", chr))
-  if (file.exists(result_path)) {
-    cat("  --> Existing result found, skipping:", result_path, "\n")
-    next
-  }
-
-  mw_gwas_input_path <- file.path(
-    hermes_input_dir,
-    sprintf("chr%d_mw_gwas_input_hermes_pwas.rds", chr)
-  )
+  mw_gwas_input_path <- file.path(hermes_input_dir, sprintf("chr%d_mw_gwas_input_hermes_pwas.rds", chr))
   ld_snp_path <- file.path(ld_input_dir, sprintf("filtered_chr%d_hg38_hermes_pwas.bim", chr))
   x_ref_path <- file.path(ld_input_dir, sprintf("filtered_chr%d_hg38_012_hermes_pwas.raw", chr))
 
-  if (!file.exists(mw_gwas_input_path) || !file.exists(ld_snp_path) || !file.exists(x_ref_path)) {
-    cat("  --> Missing input files, skipping\n")
-    next
-  }
 
   mw_gwas_input <- readRDS(mw_gwas_input_path)
+
   if (!"gene_id" %in% names(mw_gwas_input) && "protein_id" %in% names(mw_gwas_input)) {
     mw_gwas_input$gene_id <- mw_gwas_input$protein_id
   }

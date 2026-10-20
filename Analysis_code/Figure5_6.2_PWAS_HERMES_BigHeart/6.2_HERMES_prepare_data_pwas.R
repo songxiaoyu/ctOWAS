@@ -14,27 +14,15 @@ library(readr)
 
 setwd('/Users/songxiaoyu152/NUS Dropbox/Xiaoyu Song/Density_Song/Paper_PWAS')
 paper_dir <- getwd()
-
-# Which trained model to prepare: "ctOWAS" or "MiXcan" (produced by
-# 7.1b_export_heart_weights_for_hermes.R). Run this script once per tag.
-model_tag <- Sys.getenv("HERMES_MODEL_TAG", "ctOWAS")
-if (!model_tag %in% c("ctOWAS", "MiXcan")) {
-  stop("HERMES_MODEL_TAG must be 'ctOWAS' or 'MiXcan', got: ", model_tag, call. = FALSE)
-}
-cat("Preparing HERMES input for model:", model_tag, "")
+model_tag <- Sys.getenv("HERMES_MODEL_TAG", "ctOWAS") # can be "ctOWAS" or "MiXcan"
 
 workspace_dir <- file.path(paper_dir, "Results", "hermes_pwas",paste0("hermes_workspace_", model_tag))
 
 # load HERMES
 gwas_file <- file.path(paper_dir, "Data",  "HERMES_GWAS_DCM_EUR","FORMAT-METAL_Pheno5_EUR_hg38_rsid.tsv.gz")
-
-# load weights (from 7.1b_export_heart_weights_for_hermes.R)
 weights_dir <- file.path(paper_dir, "Results", "heart_protein_training")
 weights_file <- file.path(weights_dir, paste0("weights_", model_tag, "_for_hermes.csv"))
-if (!file.exists(weights_file)) {
-  stop("Missing weights file: ", weights_file,
-       " -- run 7.1b_export_heart_weights_for_hermes.R first.", call. = FALSE)
-}
+
 mw_input <- fread(weights_file)
 
 # create new folders
@@ -50,7 +38,7 @@ normalize_chr <- function(x) {sub("^chr", "", as.character(x))}
 normalize_varid <- function(x) {x <- as.character(x);x <- sub("^chr", "", x);
   x <- sub("_b38$", "", x); gsub("_", ":", x)}
 
-# Step 1. Read trained PWAS model weights.
+# Step 1. Read trained PWAS model weights ----------
 
 required_weight_cols <- c("gene_id", "gene_name", "varID", "chr", "pos",
   "ref_allele", "eff_allele", "weight_cardiomyocytes", "weight_other", "type")
@@ -67,16 +55,11 @@ mw_input <- mw_input %>%
 setDT(mw_input)
 setkey(mw_input, CHR, varID)
 
-# Step 2. Read lifted HERMES GWAS once and standardize its columns.
+# Step 2. Read lifted HERMES GWAS once and standardize its columns --------
 gwas <- fread(gwas_file)
 required_gwas_cols <- c("CHR38", "POS38", "A1", "A2", "A1_beta", "se", "pval")
 missing_gwas_cols <- setdiff(required_gwas_cols, names(gwas))
-if (length(missing_gwas_cols)) {
-  stop("HERMES GWAS is missing columns: ", paste(missing_gwas_cols, collapse = ", "))
-}
-if (!"rsid" %in% names(gwas)) {
-  gwas[, rsid := NA_character_]
-}
+
 
 # HERMES A1_beta is the beta for A1. Use A1 as Effect.Gwas and A2 as baseline.
 gwas <- gwas %>%
