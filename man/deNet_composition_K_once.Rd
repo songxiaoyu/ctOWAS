@@ -140,17 +140,56 @@ This function relies on the internal helpers \code{Estep.K()},
 }
 \examples{
 \dontrun{
-fit <- deNet_composition_K_once(
-  expr        = t(expr_matrix),   # samples x genes
-  composition = prior_matrix,     # samples x cell types
-  marker_list = list(
-    Tcell  = c("CD3D", "CD3E"),
-    Bcell  = c("CD79A", "MS4A1"),
-    Mono   = c("CD14", "LYZ")
-  ),
-  prior_strength = 10
+library(ctOWAS)
+data(markers)
+data(expr)
+
+# Identify cell types represented by the marker signatures
+cell_names <- unique(sub("#.*$", "", names(markers)))
+
+# Construct a custom xCell2 reference
+custom_xcell2 <- methods::new(
+  "xCell2Object",
+  signatures = markers,
+  genes_used = unique(unlist(markers, use.names = FALSE)),
+  dependencies = list(),
+  params = data.frame(celltype = cell_names, a = 1, b = 1, m = 1, n = 0),
+  spill_mat = diag(1, length(cell_names),
+                   dimnames = list(cell_names, cell_names))
 )
-head(fit$Ecomposition)
+
+# Calculate raw cell-type enrichment scores
+xCellScore <- xCell2::xCell2Analysis(
+  mix = expr, xcell2object = custom_xcell2,
+  minSharedGenes = 0.8, rawScores = TRUE, spillover = FALSE
+)
+
+# Map each enrichment score to its target cell type
+cell_types <- as.list(cell_names)
+names(cell_types) <- cell_names
+
+# Estimate sample-specific prior cell-type proportions
+pi_prior <- estimate_prior(
+  xCellScore = xCellScore,
+  cell_types = cell_types,
+  mu = c(0.4, 0.5, 0.1),
+  lower = 0.01, upper = 0.98
+)
+
+# Combine signature replicates into a marker list by cell type
+marker_clean <- setNames(lapply(cell_names, function(ct)
+  unique(unlist(markers[startsWith(names(markers), paste0(ct, "#"))],
+                use.names = FALSE))), cell_names)
+
+# Refine cell-type proportions using all available samples
+fit <- deNet_composition_K_once(
+  expr = t(expr),                 # samples x genes
+  composition = pi_prior,        # samples x cell types
+  marker_list = marker_clean,
+  prior_strength = 10,
+  verbose = FALSE
+)
+head(fit$Ecomposition, 3)
 fit$convergence
 }
 

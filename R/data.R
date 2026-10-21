@@ -1,85 +1,29 @@
-#' Cell-type marker gene reference
+#' Cell-type-specific marker gene reference
 #'
-#' A total of 489 marker-gene sets for 64 cell types, compiled from Aran et al.
-#' (2017), the reference used by xCell.
+#' A total of 9 marker gene sets for 3 cell types used in ctOWAS
+#' for estimating cell-type proportions from bulk gene expression data.
+#' Each cell type has multiple marker gene sets.
 #'
-#' @format A data frame with 489 rows and 202 columns:
-#' \describe{
-#'   \item{Celltype_Source_ID}{Signature identifier (cell type, source and
-#'     replicate, e.g. \code{"aDC_HPCA_1"}).}
-#'   \item{# of genes}{Number of marker genes in the signature.}
-#'   \item{V3, \ldots, V202}{Marker gene symbols; unused cells are empty
-#'     strings.}
-#' }
-#' @source Aran D, Hu Z, Butte AJ (2017). xCell: digitally portraying the
-#'   tissue cellular heterogeneity landscape. \emph{Genome Biology} 18, 220.
-"GeneXCell"
+#' @format A named list of 9 character vectors containing marker gene symbols
+#'   for 3 cell types. Each list element represents a marker gene set,
+#'   with names formatted as \code{CellType#customN}, where
+#'   \code{CellType} indicates the cell type and \code{N} identifies
+#'   the marker gene set.
+#' @source Cell-type-specific marker gene sets compiled for ctOWAS analysis.
+"markers"
 
 
 
-
-#' Example bulk expression matrix
+#' Example bulk gene expression data
 #'
-#' A small simulated bulk expression matrix used in the README and examples.
+#' A bulk gene expression dataset used in ctOWAS examples for
+#' estimating cell-type proportions using cell-type-specific marker genes.
 #'
-#' @format A numeric matrix with 50 genes in rows (\code{Gene1}, \ldots,
-#'   \code{Gene50}) and 20 samples in columns (\code{Sample1}, \ldots,
-#'   \code{Sample20}).
-#' @source Simulated example data.
-"exprB_example"
-
-
-
-
-#' Example marker gene list
-#'
-#' Marker genes for two cell types, for use as \code{marker_list} in
-#' \code{\link{pi_estimation_K}}.
-#'
-#' @format A named list of two character vectors, \code{CellType1}
-#'   (\code{Gene1}--\code{Gene3}) and \code{CellType2}
-#'   (\code{Gene4}--\code{Gene6}). Genes are row names of
-#'   \code{\link{exprB_example}}.
-#' @source Simulated example data.
-"markers_example"
-
-
-
-
-#' Example simulated xCell enrichment scores
-#'
-#' Simulated xCell-like enrichment scores for the 20 samples in
-#' \code{\link{exprB_example}}, for use as \code{xCellScore} in
-#' \code{\link{estimate_prior}}.
-#'
-#' @format A numeric matrix with 5 xCell cell types in rows
-#'   (\code{"Epithelial cells"}, \code{"Adipocytes"}, \code{"Preadipocytes"},
-#'   \code{"Fibroblasts"}, \code{"Endothelial cells"}) and 20 samples in
-#'   columns (\code{Sample1}, \ldots, \code{Sample20}). Values are
-#'   nonnegative.
-#'
-#' @details
-#' Scores were generated as a scaled copy of the true fractions in
-#' \code{\link{pi_k}} plus Gaussian noise, truncated at zero:
-#' \code{"Epithelial cells"} tracks \code{pi_k[, "Cell1"]}, and
-#' \code{"Adipocytes"} and \code{"Preadipocytes"} track
-#' \code{pi_k[, "Cell2"]}. \code{"Fibroblasts"} and
-#' \code{"Endothelial cells"} are unrelated noise. The generating code is in
-#' \code{data-raw/example_data.R} in the source repository.
-#'
-#' @source Simulated example data.
-#'
-#' @examples
-#' data(xCellScore_example)
-#' prior <- estimate_prior(
-#'   xCellScore = xCellScore_example,
-#'   cell_types = list(CellType1 = "Epithelial cells",
-#'                     CellType2 = c("Adipocytes", "Preadipocytes")),
-#'   mu = c(0.5, 0.5), lower = 0.01, upper = 0.99
-#' )
-#' head(prior)
-"xCellScore_example"
-
+#' @format A data frame with 24,919 genes in rows and 125 samples
+#'   in columns. Row names represent gene symbols, and column names
+#'   represent sample identifiers.
+#' @source Example bulk gene expression data provided with the ctOWAS package.
+"expr"
 
 
 
@@ -125,24 +69,6 @@
 #' @source Simulated example data.
 "gwas_example"
 
-
-
-
-#' Example merged results table
-#'
-#' A toy results table with marginal p-values for each cell type, a joint
-#' p-value and a cell-type specificity label.
-#'
-#' @format A data frame with 300 rows (genes) and 5 columns:
-#' \describe{
-#'   \item{gene}{Gene identifier.}
-#'   \item{type_ct2}{Cell-type specificity label (e.g.
-#'     \code{"CellTypeSpecific"}).}
-#'   \item{p_1_ct2, p_2_ct2}{Marginal p-values for cell types 1 and 2.}
-#'   \item{p_join_ct2}{Joint p-value across the two cell types.}
-#' }
-#' @source Simulated example data.
-"merged_example"
 
 
 

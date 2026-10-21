@@ -2,7 +2,7 @@
 % Please edit documentation in R/deNet_composition_K.R
 \name{pi_estimation_K}
 \alias{pi_estimation_K}
-\title{Estimate cell-type composition by repeated subsampling}
+\title{Estimate cell-type composition from piror by repeated subsampling}
 \usage{
 pi_estimation_K(
   expr,
@@ -81,22 +81,61 @@ sum to 1; other rows are returned unscaled.
 Note that \code{set.seed()} changes the global random number generator
 state as a side effect.
 }
-\examples{
-\dontrun{
-est <- pi_estimation_K(
-  expr            = expr_matrix,   # genes x samples
-  n_iteration     = 50,
-  prior           = prior_matrix,  # samples x cell types
-  marker_list     = markers,
-  seed            = 123,
-  sample_fraction = 0.8,
-  trim            = 0.05
-)
-head(est)
-rowSums(est)
-}
-
-}
 \seealso{
 \code{\link{deNet_composition_K_once}}
+
+\dontrun{
+library(ctOWAS)
+data(markers)
+data(expr)
+
+# Identify cell types represented by the marker signatures
+cell_names <- unique(sub("#.*$", "", names(markers)))
+
+# Construct a custom xCell2 reference
+custom_xcell2 <- methods::new(
+  "xCell2Object",
+  signatures = markers,
+  genes_used = unique(unlist(markers, use.names = FALSE)),
+  dependencies = list(),
+  params = data.frame(celltype = cell_names, a = 1, b = 1, m = 1, n = 0),
+  spill_mat = diag(1, length(cell_names),
+                   dimnames = list(cell_names, cell_names))
+)
+
+# Calculate raw cell-type enrichment scores
+xCellScore <- xCell2::xCell2Analysis(
+  mix = expr, xcell2object = custom_xcell2,
+  minSharedGenes = 0.8, rawScores = TRUE, spillover = FALSE
+)
+
+# Map each enrichment score to its target cell type
+cell_types <- as.list(cell_names)
+names(cell_types) <- cell_names
+
+# Estimate sample-specific prior cell-type proportions
+pi_prior <- estimate_prior(
+  xCellScore = xCellScore,
+  cell_types = cell_types,
+  mu = c(0.4, 0.5, 0.1),
+  lower = 0.01, upper = 0.98
+)
+
+# Combine signature replicates into a marker list by cell type
+marker_clean <- setNames(lapply(cell_names, function(ct)
+  unique(unlist(markers[startsWith(names(markers), paste0(ct, "#"))],
+                use.names = FALSE))), cell_names)
+
+# Average composition estimates across sample subsamples
+pi_hat <- pi_estimation_K(
+  expr = expr,                  # genes x samples
+  n_iteration = 20,
+  prior = pi_prior,             # samples x cell types
+  marker_list = marker_clean,
+  seed = 1,
+  verbose = FALSE
+)
+head(pi_hat, 3)
+rowSums(pi_hat)[1:3]
+}
 }

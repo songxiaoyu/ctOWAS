@@ -2,7 +2,7 @@
 % Please edit documentation in R/deNet_composition_K.R
 \name{estimate_prior}
 \alias{estimate_prior}
-\title{Estimate Prior Cell-Type Composition from xCell Scores}
+\title{Estimate Prior Cell-Type Composition from xCell/xCell2 Scores}
 \usage{
 estimate_prior(
   xCellScore,
@@ -16,7 +16,7 @@ estimate_prior(
 )
 }
 \arguments{
-\item{xCellScore}{A numeric matrix of xCell enrichment scores, with xCell
+\item{xCellScore}{A numeric matrix of xCell/xCell2 enrichment scores, with xCell/xCell2
 cell types in rows and samples in columns. The matrix must have row names.}
 
 \item{cell_types}{A list defining the target cell-type compartments. Each
@@ -66,7 +66,7 @@ the specified compartment and \code{"Others"}. Their target means are \code{mu} 
 \code{1 - mu}, respectively.
 }
 \description{
-Converts xCell enrichment scores into sample-specific prior cell-type
+Converts xCell/xCell2 enrichment scores into sample-specific prior cell-type
 proportions with user-specified mean proportions and lower and upper bounds.
 }
 \details{
@@ -100,52 +100,45 @@ more than one, and the upper bounds must sum to at least one. All xCell types
 listed in \code{cell_types} must be present in \code{rownames(xCellScore)}.
 }
 \examples{
-xCellScore <- matrix(
-  c(
-    0.8, 0.6, 0.7, 0.9,
-    0.4, 0.5, 0.3, 0.6,
-    0.5, 0.4, 0.6, 0.3,
-    0.2, 0.3, 0.2, 0.4
-  ),
-  nrow = 4,
-  byrow = TRUE,
-  dimnames = list(
-    c("Epithelial cells", "Adipocytes",
-      "Preadipocytes", "Fibroblasts"),
-    paste0("Sample", 1:4)
-  )
+\dontrun{
+library(ctOWAS)
+data(markers)
+data(expr)
+
+# Identify cell types represented by the marker signatures
+cell_names <- unique(sub("#.*$", "", names(markers)))
+
+# Construct a custom xCell2 reference
+custom_xcell2 <- methods::new(
+  "xCell2Object",
+  signatures = markers,
+  genes_used = unique(unlist(markers, use.names = FALSE)),
+  dependencies = list(),
+  params = data.frame(celltype = cell_names, a = 1, b = 1, m = 1, n = 0),
+  spill_mat = diag(1, length(cell_names),
+                   dimnames = list(cell_names, cell_names))
 )
 
-## Three target compartments
-cell_types <- list(
-  Epithelial = "Epithelial cells",
-  `Adipocytes/Preadipocytes` = c("Adipocytes", "Preadipocytes"),
-  Fibroblasts = "Fibroblasts"
+# Calculate raw cell-type enrichment scores
+xCellScore <- xCell2::xCell2Analysis(
+  mix = expr, xcell2object = custom_xcell2,
+  minSharedGenes = 0.8, rawScores = TRUE, spillover = FALSE
 )
 
+# Map each enrichment score to its target cell type
+cell_types <- as.list(cell_names)
+names(cell_types) <- cell_names
+
+# Estimate sample-specific prior cell-type proportions
 pi_prior <- estimate_prior(
   xCellScore = xCellScore,
   cell_types = cell_types,
-  mu = c(0.37, 0.54, 0.09),
-  lower = c(0.10, 0.20, 0.02),
-  upper = c(0.70, 0.85, 0.30)
+  mu = c(0.4, 0.5, 0.1),
+  lower = 0.01, upper = 0.98
 )
-
+head(pi_prior, 3)
 colMeans(pi_prior)
-apply(pi_prior, 2, range)
-rowSums(pi_prior)
-
-## One target compartment versus all other cells
-pi_epithelial <- estimate_prior(
-  xCellScore = xCellScore,
-  cell_types = list(Epithelial = "Epithelial cells"),
-  mu = 0.37,
-  lower = 0.10,
-  upper = 0.70
-)
-
-colMeans(pi_epithelial)
-apply(pi_epithelial, 2, range)
-rowSums(pi_epithelial)
+rowSums(pi_prior)[1:3]
+}
 
 }

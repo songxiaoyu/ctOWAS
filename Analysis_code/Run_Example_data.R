@@ -3,7 +3,7 @@ library(ctOWAS)
 # Load example marker signatures and gene expression data
 data(markers)
 data(expr)
-markers
+# markers
 
 # Extract cell-type names (remove suffixes after "#")
 cell_names <- unique(sub("#.*$", "", names(markers)))
@@ -38,6 +38,12 @@ pi_prior[1:3,]
 
 # Estimate pi   ----------
 marker_clean <- setNames(lapply(cell_names, function(ct) unique(unlist(markers[grepl(paste0("^", ct, "#"), names(markers))]))), cell_names)
+
+fit <- deNet_composition_K_once(expr = t(expr),                 # samples x genes
+          composition = pi_prior,        # samples x cell types
+          marker_list = marker_clean,
+          prior_strength = 10,
+          verbose = FALSE)
 
 pi_hat <- pi_estimation_K(
   expr        = expr,    # genes x samples

@@ -170,10 +170,17 @@ names of `marker_list`.
 ```r
 marker_clean <- setNames(lapply(cell_names, function(ct) unique(unlist(markers[grepl(paste0("^", ct, "#"), names(markers))]))), cell_names)
 
+# run it once
+fit <- deNet_composition_K_once(expr = t(expr),        # samples x genes
+          composition = pi_prior,                      # samples x cell types, from step (b)
+          marker_list = marker_clean,                  # named list, few elements per cell type
+          verbose = T)
+
+# run it B times (B=20 here) using subsampling 
 pi_hat <- pi_estimation_K(
   expr        = expr,             # genes x samples
   n_iteration = 20,               # number of subsampling iterations
-  prior       = pi_prior,         # samples x cell types, from step (a)
+  prior       = pi_prior,         # samples x cell types, from step (b)
   marker_list = marker_clean,     # named list, few elements per cell type
   seed        = 1,
   verbose     = FALSE             # passed to deNet_composition_K_once()
@@ -186,10 +193,7 @@ pi_hat[1:3,]      # samples x cell types; rows sum to 1
 # GTEX-11EMC  0.5620261 0.3855683 0.05240558
 ```
 
-Other arguments of `deNet_composition_K_once()`, such as `prior_strength`
-(how strongly estimates are shrunk toward the prior, default `10`), can also be
-passed through `pi_estimation_K()`. The steps below use the pre-computed
-fractions in `pi_k` (columns `Cell1`, `Cell2`).
+
 
 ### Step 2. Train a cell-type-specific prediction model
 Now zoom into any gene of interest, with a pre-estimated pi_k for K cell types, training

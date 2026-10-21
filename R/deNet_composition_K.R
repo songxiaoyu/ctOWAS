@@ -1,9 +1,9 @@
-#' Estimate Prior Cell-Type Composition from xCell Scores
+#' Estimate Prior Cell-Type Composition from xCell/xCell2 Scores
 #'
-#' Converts xCell enrichment scores into sample-specific prior cell-type
+#' Converts xCell/xCell2 enrichment scores into sample-specific prior cell-type
 #' proportions with user-specified mean proportions and lower and upper bounds.
 #'
-#' @param xCellScore A numeric matrix of xCell enrichment scores, with xCell
+#' @param xCellScore A numeric matrix of xCell/xCell2 enrichment scores, with xCell/xCell2
 #'   cell types in rows and samples in columns. The matrix must have row names.
 #' @param cell_types A list defining the target cell-type compartments. Each
 #'   element contains one or more row names of `xCellScore`. When multiple xCell
@@ -75,53 +75,46 @@
 #' listed in `cell_types` must be present in `rownames(xCellScore)`.
 #'
 #' @examples
-#' xCellScore <- matrix(
-#'   c(
-#'     0.8, 0.6, 0.7, 0.9,
-#'     0.4, 0.5, 0.3, 0.6,
-#'     0.5, 0.4, 0.6, 0.3,
-#'     0.2, 0.3, 0.2, 0.4
-#'   ),
-#'   nrow = 4,
-#'   byrow = TRUE,
-#'   dimnames = list(
-#'     c("Epithelial cells", "Adipocytes",
-#'       "Preadipocytes", "Fibroblasts"),
-#'     paste0("Sample", 1:4)
-#'   )
+#' \dontrun{
+#' library(ctOWAS)
+#' data(markers)
+#' data(expr)
+#'
+#' # Identify cell types represented by the marker signatures
+#' cell_names <- unique(sub("#.*$", "", names(markers)))
+#'
+#' # Construct a custom xCell2 reference
+#' custom_xcell2 <- methods::new(
+#'   "xCell2Object",
+#'   signatures = markers,
+#'   genes_used = unique(unlist(markers, use.names = FALSE)),
+#'   dependencies = list(),
+#'   params = data.frame(celltype = cell_names, a = 1, b = 1, m = 1, n = 0),
+#'   spill_mat = diag(1, length(cell_names),
+#'                    dimnames = list(cell_names, cell_names))
 #' )
 #'
-#' ## Three target compartments
-#' cell_types <- list(
-#'   Epithelial = "Epithelial cells",
-#'   `Adipocytes/Preadipocytes` = c("Adipocytes", "Preadipocytes"),
-#'   Fibroblasts = "Fibroblasts"
+#' # Calculate raw cell-type enrichment scores
+#' xCellScore <- xCell2::xCell2Analysis(
+#'   mix = expr, xcell2object = custom_xcell2,
+#'   minSharedGenes = 0.8, rawScores = TRUE, spillover = FALSE
 #' )
 #'
+#' # Map each enrichment score to its target cell type
+#' cell_types <- as.list(cell_names)
+#' names(cell_types) <- cell_names
+#'
+#' # Estimate sample-specific prior cell-type proportions
 #' pi_prior <- estimate_prior(
 #'   xCellScore = xCellScore,
 #'   cell_types = cell_types,
-#'   mu = c(0.37, 0.54, 0.09),
-#'   lower = c(0.10, 0.20, 0.02),
-#'   upper = c(0.70, 0.85, 0.30)
+#'   mu = c(0.4, 0.5, 0.1),
+#'   lower = 0.01, upper = 0.98
 #' )
-#'
+#' head(pi_prior, 3)
 #' colMeans(pi_prior)
-#' apply(pi_prior, 2, range)
-#' rowSums(pi_prior)
-#'
-#' ## One target compartment versus all other cells
-#' pi_epithelial <- estimate_prior(
-#'   xCellScore = xCellScore,
-#'   cell_types = list(Epithelial = "Epithelial cells"),
-#'   mu = 0.37,
-#'   lower = 0.10,
-#'   upper = 0.70
-#' )
-#'
-#' colMeans(pi_epithelial)
-#' apply(pi_epithelial, 2, range)
-#' rowSums(pi_epithelial)
+#' rowSums(pi_prior)[1:3]
+#' }
 #'
 #' @export
 estimate_prior <- function(xCellScore, cell_types, mu, lower = 0.01, upper = 0.98,
@@ -309,24 +302,64 @@ estimate_prior <- function(xCellScore, cell_types, mu, lower = 0.01, upper = 0.9
 #'
 #' @examples
 #' \dontrun{
-#' fit <- deNet_composition_K_once(
-#'   expr        = t(expr_matrix),   # samples x genes
-#'   composition = prior_matrix,     # samples x cell types
-#'   marker_list = list(
-#'     Tcell  = c("CD3D", "CD3E"),
-#'     Bcell  = c("CD79A", "MS4A1"),
-#'     Mono   = c("CD14", "LYZ")
-#'   ),
-#'   prior_strength = 10
+#' library(ctOWAS)
+#' data(markers)
+#' data(expr)
+#'
+#' # Identify cell types represented by the marker signatures
+#' cell_names <- unique(sub("#.*$", "", names(markers)))
+#'
+#' # Construct a custom xCell2 reference
+#' custom_xcell2 <- methods::new(
+#'   "xCell2Object",
+#'   signatures = markers,
+#'   genes_used = unique(unlist(markers, use.names = FALSE)),
+#'   dependencies = list(),
+#'   params = data.frame(celltype = cell_names, a = 1, b = 1, m = 1, n = 0),
+#'   spill_mat = diag(1, length(cell_names),
+#'                    dimnames = list(cell_names, cell_names))
 #' )
-#' head(fit$Ecomposition)
+#'
+#' # Calculate raw cell-type enrichment scores
+#' xCellScore <- xCell2::xCell2Analysis(
+#'   mix = expr, xcell2object = custom_xcell2,
+#'   minSharedGenes = 0.8, rawScores = TRUE, spillover = FALSE
+#' )
+#'
+#' # Map each enrichment score to its target cell type
+#' cell_types <- as.list(cell_names)
+#' names(cell_types) <- cell_names
+#'
+#' # Estimate sample-specific prior cell-type proportions
+#' pi_prior <- estimate_prior(
+#'   xCellScore = xCellScore,
+#'   cell_types = cell_types,
+#'   mu = c(0.4, 0.5, 0.1),
+#'   lower = 0.01, upper = 0.98
+#' )
+#'
+#' # Combine signature replicates into a marker list by cell type
+#' marker_clean <- setNames(lapply(cell_names, function(ct)
+#'   unique(unlist(markers[startsWith(names(markers), paste0(ct, "#"))],
+#'                 use.names = FALSE))), cell_names)
+#'
+#' # Refine cell-type proportions using all available samples
+#' fit <- deNet_composition_K_once(
+#'   expr = t(expr),                 # samples x genes
+#'   composition = pi_prior,        # samples x cell types
+#'   marker_list = marker_clean,
+#'   prior_strength = 10,
+#'   verbose = FALSE
+#' )
+#' head(fit$Ecomposition, 3)
 #' fit$convergence
 #' }
 #'
 #' @importFrom stats optim sd var setNames
 #' @export
-deNet_composition_K_once <- function( expr, composition, marker_list, max_outer = 50L, max_inner = 200L, tol_outer = 0.01, tol_inner = 0.01,
-    min_variance = 1e-8, prior_strength = 10, minor_power = 0.5, max_cell_weight = 3, marker_margin = 0.05, optim_maxit = 100L, verbose = TRUE) {
+deNet_composition_K_once <- function(expr, composition, marker_list,
+                                     max_outer = 50L, max_inner = 200L, tol_outer = 0.01, tol_inner = 0.01, min_variance = 1e-8,
+                                     prior_strength = 10, minor_power = 0.5, max_cell_weight = 3, marker_margin = 0.05, optim_maxit = 100L, verbose = TRUE) {
 
   start_time <- proc.time()
   expr <- as.matrix(expr)                 # samples x genes
@@ -533,7 +566,11 @@ deNet_composition_K_once <- function( expr, composition, marker_list, max_outer 
   )
 }
 
-#' Estimate cell-type composition by repeated subsampling
+
+
+
+
+#' Estimate cell-type composition from piror by repeated subsampling
 #'
 #' @description
 #' Estimates the cell-type composition (proportions) of each sample by
@@ -594,19 +631,59 @@ deNet_composition_K_once <- function( expr, composition, marker_list, max_outer 
 #'
 #' @seealso \code{\link{deNet_composition_K_once}}
 #'
-#' @examples
 #' \dontrun{
-#' est <- pi_estimation_K(
-#'   expr            = expr_matrix,   # genes x samples
-#'   n_iteration     = 50,
-#'   prior           = prior_matrix,  # samples x cell types
-#'   marker_list     = markers,
-#'   seed            = 123,
-#'   sample_fraction = 0.8,
-#'   trim            = 0.05
+#' library(ctOWAS)
+#' data(markers)
+#' data(expr)
+#'
+#' # Identify cell types represented by the marker signatures
+#' cell_names <- unique(sub("#.*$", "", names(markers)))
+#'
+#' # Construct a custom xCell2 reference
+#' custom_xcell2 <- methods::new(
+#'   "xCell2Object",
+#'   signatures = markers,
+#'   genes_used = unique(unlist(markers, use.names = FALSE)),
+#'   dependencies = list(),
+#'   params = data.frame(celltype = cell_names, a = 1, b = 1, m = 1, n = 0),
+#'   spill_mat = diag(1, length(cell_names),
+#'                    dimnames = list(cell_names, cell_names))
 #' )
-#' head(est)
-#' rowSums(est)
+#'
+#' # Calculate raw cell-type enrichment scores
+#' xCellScore <- xCell2::xCell2Analysis(
+#'   mix = expr, xcell2object = custom_xcell2,
+#'   minSharedGenes = 0.8, rawScores = TRUE, spillover = FALSE
+#' )
+#'
+#' # Map each enrichment score to its target cell type
+#' cell_types <- as.list(cell_names)
+#' names(cell_types) <- cell_names
+#'
+#' # Estimate sample-specific prior cell-type proportions
+#' pi_prior <- estimate_prior(
+#'   xCellScore = xCellScore,
+#'   cell_types = cell_types,
+#'   mu = c(0.4, 0.5, 0.1),
+#'   lower = 0.01, upper = 0.98
+#' )
+#'
+#' # Combine signature replicates into a marker list by cell type
+#' marker_clean <- setNames(lapply(cell_names, function(ct)
+#'   unique(unlist(markers[startsWith(names(markers), paste0(ct, "#"))],
+#'                 use.names = FALSE))), cell_names)
+#'
+#' # Average composition estimates across sample subsamples
+#' pi_hat <- pi_estimation_K(
+#'   expr = expr,                  # genes x samples
+#'   n_iteration = 20,
+#'   prior = pi_prior,             # samples x cell types
+#'   marker_list = marker_clean,
+#'   seed = 1,
+#'   verbose = FALSE
+#' )
+#' head(pi_hat, 3)
+#' rowSums(pi_hat)[1:3]
 #' }
 #'
 #' @importFrom stats sd complete.cases
@@ -680,8 +757,7 @@ pi_estimation_K <- function(
 ## Helper functions
 ## ============================================================
 
-# Single-core K-cell-type composition estimation
-
+# E step
 Estep.K <- function(mu, sigma2, X, P, P2 = P^2, min_variance = 1e-8) {
   N <- nrow(P)
   sigma_mat <- rep(sigma2, each = N)
@@ -693,12 +769,14 @@ Estep.K <- function(mu, sigma2, X, P, P2 = P^2, min_variance = 1e-8) {
   list(EY = EY, EY2 = conditional_variance + EY^2)
 }
 
+# M step
 Mstep.K <- function(EY, EY2, min_variance = 1e-8) {
   mu <- colMeans(EY)
   sigma2 <- pmax(colMeans(EY2) - mu^2, min_variance)
   list(mu = mu, sigma2 = sigma2)
 }
 
+# additive logistic
 additive_logistic <- function(theta) {
   z <- c(theta, 0)
   z <- exp(z - max(z))
