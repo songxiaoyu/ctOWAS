@@ -7,10 +7,7 @@ library(RSQLite)
 library(janitor)
 library(ctOWAS)
 
-#source('Github/R/ctOWAS_train_k.R')
-setwd('/Users/songxiaoyu152/NUS Dropbox/Xiaoyu Song/Density_Song/Paper_PWAS')
-
-paper_dir <- getwd()
+paper_dir <- "/Users/songxiaoyu152/NUS Dropbox/Xiaoyu Song/Density_Song/Paper_PWAS"
 data_dir <- file.path(paper_dir, "Data")
 gtex_dir <- file.path(data_dir, "GTEx_Breast")
 results_dir <- file.path(paper_dir, "Results")
@@ -87,3 +84,45 @@ G
 # Save all data
 
 save(female_white, geno, expr, expr2, genID, cov, ENweights, ensembl38, file = file.path(results_dir, "GTEx_clean.RData"))
+
+
+
+# To save into example data in R package ---------------
+
+pkg_dat_dir = file.path(paper_dir, "Github/data")
+expr=expr2
+save(expr, file = file.path(pkg_dat_dir, "expr.rda"), compress = "xz")
+
+
+make_xcell2_signatures <- function(marker_list, available_genes, n_signatures = 3L, fraction = 0.8, min_size = 8L) {
+
+  marker_list <- lapply( marker_list,intersect,y = available_genes)
+
+  if (any(lengths(marker_list) < min_size)) {
+    stop("Fewer than ", min_size, " markers available for: ",
+         paste(names(marker_list)[lengths(marker_list) < min_size], collapse = ", "))}
+
+  signatures <- list()
+
+  for (cell_type in names(marker_list)) {
+
+    genes <- marker_list[[cell_type]]
+    n_genes <- length(genes)
+
+    signature_size <- max(min_size,floor(fraction * n_genes))
+    signature_size <- min(signature_size, n_genes)
+
+    for (j in seq_len(n_signatures)) {
+
+      start <- floor( (j - 1L) * n_genes / n_signatures)
+      index <- (start + seq_len(signature_size) - 1L) %% n_genes + 1L
+      signature_name <- paste0(cell_type, "#custom",j)
+      signatures[[signature_name]] <- genes[index]
+    }
+  }
+  signatures
+}
+markers <- make_xcell2_signatures(marker_list = markers, available_genes = rownames(expr), n_signatures = 3, fraction = 0.8, min_size = 8)
+
+save(markers,file = file.path(pkg_dat_dir,  "markers.rda"), compress = "xz")
+

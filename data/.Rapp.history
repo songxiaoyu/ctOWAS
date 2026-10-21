@@ -1,0 +1,5 @@
+load("/Users/songxiaoyu152/Library/CloudStorage/Dropbox-NUS/Xiaoyu Song/Density_Song/Paper_PWAS/Github/data/markers.rda")
+objects()
+markers
+load("/Users/songxiaoyu152/Library/CloudStorage/Dropbox-NUS/Xiaoyu Song/Density_Song/Paper_PWAS/Github/data/markers.rda")
+markers

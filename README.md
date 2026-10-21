@@ -44,6 +44,9 @@ install.packages(c("remotes", "glmnet", "matrixStats"))
 
 # ACAT: aggregated Cauchy association test (GitHub only)
 remotes::install_github("yaowuliu/ACAT")
+
+# xCell2: cell type enrichment analyses
+devtools::install_github('AlmogAngel/xCell2')
 ```
 
 `matrixStats` is optional; it speeds up column variance calculations in
@@ -65,75 +68,132 @@ types):
 
 | Dataset | Description |
 |---|---|
-<!-- | `exprB_example` | Bulk expression matrix, 50 genes × 20 samples |-->
-<!-- | `markers_example` | Named list of marker genes for two cell types (`CellType1`, `CellType2`) |-->
+| `expr` | Bulk expression matrix, 24919 genes × 24919 samples |
+| `markers` | Named list of marker genes for three cell types (`Epithelial`, `Adipocyte`, `Fibroblast`) |
 | `pi_k` | Cell-type fraction matrix, 20 samples × 2 cell types (`Cell1`, `Cell2`) |
 | `x_example` | Genotype dosage matrix, 20 samples × 10 SNPs |
 | `y_example` | Molecular trait for one gene across the 20 samples |
 | `gwas_example` | List of GWAS `Beta` and `se_Beta` for the same 10 SNPs |
-<!-- | `xCellScore_example` | Simulated xCell enrichment scores, 5 xCell cell types × 20 samples |-->
-<!-- | `GeneXCell` | xCell cell-type marker gene reference (Aran et al., 2017) |-->
 
-<!-- 
-### Step 1. Estimate cell-type fractions
 
-Cell-type fractions are estimated in two stages.
+### Step 1. Estimate cell-type proportions
 
-**(a) Prior proportions.** `estimate_prior()` converts xCell enrichment scores
-(xCell cell types × samples) into prior proportions whose column means match
-user-supplied target proportions, within lower and upper bounds. Several xCell
-types can be pooled into one compartment; their scores are averaged.
+To estimate cell-type proportions, we first use cell-type signature genes (markers) to
+estimate cell type enrichment scores via xCell2, then convert it into prior proportions, and
+finally update the estimates through an EM algorithm.
+
+#### (a) Estimate cell type enrichment scores via xCell2 
 
 ```r
-library(ctOWAS)
-data(xCellScore_example)
+library(xCell2)
 
-prior <- estimate_prior(
-  xCellScore = xCellScore_example,   # xCell cell types x samples
-  cell_types = list(
-    CellType1 = "Cell1",
-    CellType2 = "Cell2"
-  ),
-  mu    = c(0.4, 0.6),   # target mean proportions (sum to 1)
-  lower = 0.01,
-  upper = 0.99
+# Load example marker signatures and gene expression data
+data(markers)
+data(expr)
+
+dim(expr)
+# [1] 24919   125       # G gene by N sample
+
+print(markers)        # Each cell type may contain markers from multiple sources mimicking xCell
+$`Epithelial#custom1`
+ [1] "EPCAM" "KRT7"  "KRT8"  "KRT18" "KRT19" "MUC1"  "CLDN3" "CLDN4" "KRT5"  "KRT14"
+$`Epithelial#custom2`
+ [1] "KRT19" "MUC1"  "CLDN3" "CLDN4" "KRT5"  "KRT14" "KRT15" "KRT17" "TP63"  "EPCAM"
+$`Epithelial#custom3`
+ [1] "KRT5"  "KRT14" "KRT15" "KRT17" "TP63"  "EPCAM" "KRT7"  "KRT8"  "KRT18" "KRT19"
+$`Adipocyte#custom1`
+[1] "ADIPOQ" "PLIN1"  "PLIN4"  "FABP4"  "LPL"    "LEP"    "CIDEC"  "CIDEA"  "LIPE"  
+$`Adipocyte#custom2`
+[1] "LPL"    "LEP"    "CIDEC"  "CIDEA"  "LIPE"   "DGAT2"  "PNPLA2" "G0S2"   "ADIPOQ"
+$`Adipocyte#custom3`
+[1] "LIPE"   "DGAT2"  "PNPLA2" "G0S2"   "ADIPOQ" "PLIN1"  "PLIN4"  "FABP4"  "LPL"   
+$`Fibroblast#custom1`
+[1] "COL1A1"  "COL1A2"  "COL3A1"  "DCN"     "LUM"     "DPT"     "COL14A1" "FBLN1"   "FBLN2"  
+$`Fibroblast#custom2`
+[1] "LUM"     "DPT"     "COL14A1" "FBLN1"   "FBLN2"   "PCOLCE"  "PCOLCE2" "WISP2"   "COL1A1" 
+$`Fibroblast#custom3`
+[1] "FBLN2"   "PCOLCE"  "PCOLCE2" "WISP2"   "COL1A1"  "COL1A2"  "COL3A1"  "DCN"     "LUM"   
+
+# Extract cell-type names (remove suffixes after "#")
+cell_names <- unique(sub("#.*$", "", names(markers)))
+
+# Construct a custom xCell2 reference using marker signatures
+custom_xcell2 <- methods::new("xCell2Object", signatures = markers,
+                              genes_used = unique(unlist(markers, use.names = FALSE)),
+  # The rests are placeholder to run algorithm; do not impact results
+  dependencies = list(),
+  params = data.frame(celltype = cell_names,a = 1, b = 1, m = 1, n = 0),
+  spill_mat = diag( 1, length(cell_names),dimnames = list(cell_names, cell_names))
 )
 
-head(prior)       # samples x cell types; rows sum to 1
-colMeans(prior)   # equal to mu
+# Calculate cell-type enrichment scores
+xCellScore <- xCell2::xCell2Analysis(mix = expr,xcell2object = custom_xcell2,
+   minSharedGenes = 0.8,rawScores = TRUE, spillover = FALSE)
+   
+xCellScore[,1:3].  # Enrichment scores that do not sum up to 1
+#            GTEX-1122O GTEX-11EM3 GTEX-11EMC
+# Epithelial  0.3296296  0.9283951  0.9271605
+# Adipocyte   0.3253968  0.1124339  0.3055556
+# Fibroblast  0.8439153  0.4444444  0.2195767
 ```
 
-In real data, run xCell or xCell2 (e.g. `xCell::xCellAnalysis()`) on your bulk 
-expression to get the scores, and
-set `mu` from external estimates of average tissue composition. 
+#### (b) Estimate prior proportions from cell type enrichment scores 
 
-**(b) Refined proportions.** `pi_estimation_K()` refines the prior using bulk
+`estimate_prior()` converts xCell enrichment scores
+(xCell cell types × samples) into prior proportions whose column means match
+user-supplied target proportions, within lower and upper bounds. 
+
+```r
+cell_type_3 <- as.list(cell_names); names(cell_type_3)=cell_names
+pi_prior <- estimate_prior(xCellScore = xCellScore, cell_types = cell_type_3, 
+                           mu = c(0.4, 0.5, 0.1),
+                           lower = 0.01, upper = 0.98)
+pi_prior[1:3,]. # row sum = 1
+#             Epithelial Adipocyte Fibroblast
+# GTEX-1122O  0.2138548 0.5756515 0.21049366
+# GTEX-11EM3  0.6603801 0.2180780 0.12154189
+# GTEX-11EMC  0.5025893 0.4516501 0.04576063
+
+
+```
+
+
+
+#### (c) Refined proportions.
+
+`pi_estimation_K()` refines the prior using bulk
 expression and marker genes. In each iteration it draws a random subset of
 samples and runs a K-component EM model on the marker genes; the estimates are
 then combined with a trimmed mean. The column names of `prior` must match the
 names of `marker_list`.
 
 ```r
-data(exprB_example, markers_example)
+marker_clean <- setNames(lapply(cell_names, function(ct) unique(unlist(markers[grepl(paste0("^", ct, "#"), names(markers))]))), cell_names)
 
 pi_hat <- pi_estimation_K(
-  expr        = exprB_example,    # genes x samples
+  expr        = expr,             # genes x samples
   n_iteration = 20,               # number of subsampling iterations
-  prior       = prior,            # samples x cell types, from step (a)
-  marker_list = markers_example,  # named list, few elements per cell type
+  prior       = pi_prior,         # samples x cell types, from step (a)
+  marker_list = marker_clean,     # named list, few elements per cell type
   seed        = 1,
   verbose     = FALSE             # passed to deNet_composition_K_once()
 )
 
-head(pi_hat)      # samples x cell types; rows sum to 1
+pi_hat[1:3,]      # samples x cell types; rows sum to 1
+#             Epithelial Adipocyte Fibroblast
+# GTEX-1122O  0.2795854 0.4942176 0.22619695
+# GTEX-11EM3  0.6319745 0.2465108 0.12151471
+# GTEX-11EMC  0.5620261 0.3855683 0.05240558
 ```
 
 Other arguments of `deNet_composition_K_once()`, such as `prior_strength`
 (how strongly estimates are shrunk toward the prior, default `10`), can also be
 passed through `pi_estimation_K()`. The steps below use the pre-computed
 fractions in `pi_k` (columns `Cell1`, `Cell2`).
--->
-### Step 1. Train a cell-type-specific prediction model
+
+### Step 2. Train a cell-type-specific prediction model
+Now zoom into any gene of interest, with a pre-estimated pi_k for K cell types, training
+prediction models: 
 
 ```r
 data(x_example, y_example, pi_k)
@@ -145,12 +205,25 @@ fit <- ctOWAS_train_K(
   cov   = NULL,        # optional N x Q covariate matrix (with column names)
   yName = "Gene_A",
   alpha = 0.5,         # elastic-net mixing parameter
-  seed  = 1
+  seed  = 1,
+  No_split = 11
 )
 
 fit$W              # P x K matrix of cell-type-specific SNP weights
-fit$intercept      # cell-type-specific intercepts
+#             Cell1      Cell2
+# SNP1   5.05109193 -7.4284463
+# SNP2  -9.50832546  6.5900633
+# SNP3   3.58611992 -5.7940332
+# SNP4   0.00000000  5.0221713
+# SNP5   4.31879995 -2.2255594
+# SNP6  -4.55130835  3.4001230
+# SNP7   0.00000000  0.4018261
+# SNP8   0.00000000 -0.9635564
+# SNP9  -0.03921207  0.0000000
+# SNP10  0.00000000  0.0000000
+
 fit$Num_SNP_model  # number of SNPs with a non-zero weight in any cell type
+# [1] 9
 ```
 
 The function first runs 11 random split-sample fits to give each predictor an
@@ -161,6 +234,8 @@ With this toy dataset, `cv.glmnet` warns that there are fewer than three
 observations per fold. You can ignore this warning for the example.
 
 ### Step 2. Test the association with GWAS summary statistics
+With estimate Px K matrix of cell-type-specific SNP weights, 'W' for each gene, we perform 
+association analysis using GWAS summary statistics
 
 ```r
 data(gwas_example)
@@ -174,29 +249,24 @@ res <- ctOWAS_assoc_test_K(
   n0             = 1000,        # GWAS controls
   n1             = 1000,        # GWAS cases
   family         = "binomial",  # or "gaussian" for a continuous trait
-  regularization = "fixed",     # or "estimate"
-  reg_scale      = 0.1
+  reg_scale      = 0.1,         # shrinkage level of variance-covariance matrix to avoid sigularity
+  regularization = "fixed"     # or "estimate" proper shrinkage level
 )
 
 res$p_join_vec   # joint (correlation-adjusted) p-value for each cell type
+# [1] 0.1428555 0.4273481
 res$p_join       # ACAT-combined p-value across cell types
-res$p_sep        # separate (unadjusted) p-value for each cell type
+# [1] 0.2272238
 res$mode         # "joint", "collinear_separate" or "invalid_variance_separate"
+# [1] "joint"
 ```
 
-Expected output, approximately:
-
-```text
-$p_join_vec  0.143 0.427
-$p_join      0.227
-$p_sep       0.139 0.472
-$mode        "joint"
-```
 
 For a continuous GWAS trait, use `family = "gaussian"` (`n0` and `n1` are then
-not used). With `regularization = "estimate"`, the function chooses the
+not used). With `regularization = "estimate"`, the function estimate the
 smallest regularization scale (between `reg_min_scale` and `reg_max_scale`)
-that brings the condition number down to `condition_max`.
+that brings the largest inverse of variance-covariate matrix down to `condition_max`
+(instead of going to infinity).
 
 If any cell type has all-zero weights, or two predicted cell-type traits are
 almost perfectly correlated, the joint adjustment is skipped and the separate
@@ -217,7 +287,7 @@ pheno <- rnorm(nrow(x_example))
 gwas  <- run_gwas(X = x_example, D = pheno, family0 = gaussian())
 head(gwas)   # Beta, se_Beta, Z, P
 
-# For case-control data (D coded 0/1):
+# For fast computation in case-control data (D coded 0/1):
 # run_gwas(X, D, covar = covariates, family0 = binomial(), method_binomial = "score")
 ```
 

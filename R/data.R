@@ -1,6 +1,6 @@
 #' Cell-type marker gene reference
 #'
-#' Marker-gene sets for 489 cell-type signatures, compiled from Aran et al.
+#' A total of 489 marker-gene sets for 64 cell types, compiled from Aran et al.
 #' (2017), the reference used by xCell.
 #'
 #' @format A data frame with 489 rows and 202 columns:
@@ -15,6 +15,9 @@
 #'   tissue cellular heterogeneity landscape. \emph{Genome Biology} 18, 220.
 "GeneXCell"
 
+
+
+
 #' Example bulk expression matrix
 #'
 #' A small simulated bulk expression matrix used in the README and examples.
@@ -24,6 +27,9 @@
 #'   \code{Sample20}).
 #' @source Simulated example data.
 "exprB_example"
+
+
+
 
 #' Example marker gene list
 #'
@@ -36,6 +42,9 @@
 #'   \code{\link{exprB_example}}.
 #' @source Simulated example data.
 "markers_example"
+
+
+
 
 #' Example simulated xCell enrichment scores
 #'
@@ -71,6 +80,9 @@
 #' head(prior)
 "xCellScore_example"
 
+
+
+
 #' Example genotype matrix
 #'
 #' A small simulated genotype dosage matrix used in the README and examples.
@@ -80,6 +92,9 @@
 #'   (\code{SNP1}, \ldots, \code{SNP10}).
 #' @source Simulated example data.
 "x_example"
+
+
+
 
 #' Example molecular trait vector
 #'
@@ -91,6 +106,9 @@
 #'   \code{Sample20}).
 #' @source Simulated example data.
 "y_example"
+
+
+
 
 #' Example GWAS summary statistics
 #'
@@ -107,6 +125,9 @@
 #' @source Simulated example data.
 "gwas_example"
 
+
+
+
 #' Example merged results table
 #'
 #' A toy results table with marginal p-values for each cell type, a joint
@@ -122,6 +143,9 @@
 #' }
 #' @source Simulated example data.
 "merged_example"
+
+
+
 
 #' Example cell-type fraction matrix (2 cell types)
 #'
