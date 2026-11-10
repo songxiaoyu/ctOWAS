@@ -1,4 +1,4 @@
-# Power simulation: generate one dataset, train models, run associations,
+# Simulation: generate one dataset, train models, run associations,
 # record the result, and then proceed to the next dataset.
 
 library(data.table)
@@ -85,7 +85,7 @@ generate_one_dataset <- function(X_pool, n_train, n_test, b0, b1, b2, eta1, eta2
 }
 
 
-# Generate, predict, and test one dataset -------------------------------------
+# Generate, predict, and test in one dataset -------------------------------------
 # scenario <- data.table::data.table(scenario_id = "S3", scenario = "eta1 = 0.2, eta2 = 0", eta1 = 0.2, eta2 = 0)
 
 # replicate_id = 1L; scenario_index = 1L; n_train = 300L; n_test = 3000L; b0 = 1; b1 = 1; b2 = 1; group = "heter xy"; nfolds = 10L; prediction_alpha = 0.5; regularization = "fixed"; reg_scale = 0.05; condition_max = 100; reg_min_scale = 0.001; reg_max_scale = 0.1; ld_reference = "test"

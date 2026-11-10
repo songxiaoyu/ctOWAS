@@ -1,152 +1,283 @@
-# DRIVE association using ONLY the three-cell-type ctOWAS prediction model.
-# Cell1/Cell2/Cell3 follow the column order of pi3_new in the training script.
-# Requires genotype coordinates on the same genome build as the model variants.
-# Matches model ref/eff alleles to dosage REF/ALT exactly; does not flip alleles.
-library(data.table)
+rm(list = ls())
+library(dplyr)
 library(ctOWAS)
+library(data.table)
 
-setwd("/Users/songxiaoyu152/NUS Dropbox/Xiaoyu Song/Density_Song/Paper_PWAS")
-paper_dir <- getwd()
-results_dir <- file.path(paper_dir, "Results")
-drive_pheno_dir <- file.path(paper_dir, "Data", "DRIVE")
-drive_geno_dir <- "/Users/songxiaoyu152/NUS Dropbox/Xiaoyu Song/Density_Song/Paper_MiXcan/Data/OncoArray"
+paper_dir <- '/Users/songxiaoyu152/NUS Dropbox/Xiaoyu Song/Density_Song/Paper_PWAS'
+results_dir <- file.path(paper_dir, 'Results')
+drive_pheno_dir <- file.path(paper_dir, 'Data', 'DRIVE')
+drive_geno_dir <- file.path(paper_dir, '../Paper_MiXcan/Data/OncoArray')
+cache_dir <- file.path(results_dir, 'DRIVE_3ct_cached_inputs')
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
-weight_cols <- c("Cell1", "Cell2", "Cell3")
-p_cols <- c("p_o_1", "p_o_2", "p_o_3", "p_o")
-variant_key <- function(chr, pos, ref, alt) paste(chr, pos, toupper(ref), toupper(alt), sep = ":")
+dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
 
-# 1. Load three-cell-type ctOWAS weights into an isolated environment.
-models <- new.env()
-load(file.path(results_dir, "GTEx_Breast_pi3_Comparison.RData"), envir = models)
-w <- as.data.table(models$filtered_weights_s_3ct)
+run_preparation <- F       # FALSE for subsequent ctOWAS-only runs
+run_ctowas <- TRUE
+chromosomes <- 22:1
+mc_cores <- 1L                # macOS/Linux; use 1 on Windows
+ctowas_tag <- 'default'       # Change to preserve results from different runs
+ctowas_reg_scale <- 0.01      # NULL uses the package default
 
-stopifnot(all(c("gene", "varID", "ref_allele", "eff_allele", weight_cols) %in% names(w)))
-w <- w[, c("gene", "varID", "ref_allele", "eff_allele", weight_cols), with = FALSE]
-if (!all(vapply(w[, ..weight_cols], is.numeric, logical(1)))) stop("Weight columns must be numeric.")
-if (any(!is.finite(as.matrix(w[, ..weight_cols])))) stop("Weights contain NA/NaN/Inf; check model output.")
-w <- w[rowSums(abs(as.matrix(w[, ..weight_cols]))) > 0]
-w[, `:=`(gene = as.character(gene), CHR = suppressWarnings(as.integer(sub("^(?:chr)?([^_]+)_.*$", "\\1", varID, perl = TRUE))),
-          POS = suppressWarnings(as.integer(sub("^(?:chr)?[^_]+_([0-9]+)_.*$", "\\1", varID, perl = TRUE))),
-          ref_allele = toupper(ref_allele), eff_allele = toupper(eff_allele))]
-if (anyNA(w[, .(gene, CHR, POS, ref_allele, eff_allele)])) stop("Missing gene/alleles or unrecognized varID format.")
-w <- w[CHR %in% 1:22]
-if (!nrow(w)) stop("No nonzero autosomal weights.")
-w[, key := variant_key(CHR, POS, ref_allele, eff_allele)]
-w <- unique(w)
-if (anyDuplicated(w[, .(gene, key)])) stop("Conflicting duplicate gene-variant weights.")
-setorder(w, CHR, POS, gene)
+# Preparation-only setup ---------------------------------------------
+if (run_preparation) {
+  weights_env <- new.env(parent = emptyenv())
+  load(file.path(results_dir, 'GTEx_Breast_pi3_Comparison.RData'),
+       envir = weights_env)
+  if (!exists('filtered_weights_s_3ct', envir = weights_env, inherits = FALSE)) {
+    stop('The weights file must contain filtered_weights_s_3ct.')
+  }
+  mw_input <- copy(as.data.table(weights_env$filtered_weights_s_3ct))
+  required <- c('gene', 'varID', 'ref_allele', 'eff_allele',
+                'Cell1', 'Cell2', 'Cell3')
+  stopifnot(all(required %in% names(mw_input)))
+  mw_input[, `:=`(
+    CHR = suppressWarnings(as.integer(sub(
+      '^(?:chr)?([^_]+)_.*$', '\\1', varID, perl = TRUE))),
+    POS = suppressWarnings(as.integer(sub(
+      '^(?:chr)?[^_]+_([0-9]+)_.*$', '\\1', varID, perl = TRUE))),
+    ref_allele = toupper(ref_allele),
+    eff_allele = toupper(eff_allele)
+  )]
+  if (anyNA(mw_input[, .(CHR, POS, Cell1, Cell2, Cell3)])) {
+    stop('Missing/invalid variant coordinates or prediction weights.')
+  }
+  setorder(mw_input, CHR, POS, gene)
 
-# 2. Match phenotype and PCs explicitly, preserving the original PC1 ancestry filter.
-pheno <- fread(file.path(drive_pheno_dir, "oncoarray-drive.pheno.csv"), colClasses = c(subject_index = "character", FID = "character"))
-pc <- fread(file.path(drive_geno_dir, "oncoarray_principal_components_fastmode_2020-10-17.txt"), colClasses = c(subject_ID = "character"))
-stopifnot(all(c("subject_index", "FID", "affection_status", "genotyping_center", "age_int") %in% names(pheno)), ncol(pc) >= 11L)
-setnames(pc, "subject_ID", "FID")
-setnames(pc, names(pc)[2:11], paste0("PC", 1:10))
-if (anyNA(pheno$subject_index) || anyDuplicated(pheno$subject_index) || anyNA(pc$FID) || anyDuplicated(pc$FID)) stop("Sample IDs must be unique and nonmissing.")
-pheno <- pheno[, .(subject_index, FID, affection_status, genotyping_center, age_int)]
-pheno[, `:=`(age_int = as.numeric(age_int), affection_status = as.numeric(affection_status))]
-pheno[age_int == 888, age_int := NA_real_]
-pheno <- merge(pheno, pc[, c("FID", paste0("PC", 1:10)), with = FALSE], by = "FID", sort = FALSE)
-pheno <- pheno[is.finite(PC1) & PC1 <= 0.006]
-if (!all(na.omit(pheno$affection_status) %in% c(0, 1))) stop("affection_status must be 0=control, 1=case; recode explicitly if needed.")
-pheno <- pheno[complete.cases(pheno[, c("affection_status", "genotyping_center", "age_int", paste0("PC", 1:10)), with = FALSE])]
-pc_cols <- paste0("PC", 1:10)
-pheno <- pheno[is.finite(pheno$age_int) & rowSums(!is.finite(as.matrix(pheno[, ..pc_cols]))) == 0]
-if (!nrow(pheno)) stop("No eligible subjects after phenotype/covariate filtering.")
-
-# 3. Stream only required variants; original dosage format has CHR/POS/.../REF/ALT in columns 1/2/4/5.
-read_chr <- function(chr, keys) {
-  infile <- file.path(drive_geno_dir, sprintf("oncoarray_dosages_chr%02d.txt.gz", chr))
-  if (!file.exists(infile)) stop("Missing genotype file: ", infile)
-  keyfile <- tempfile(fileext = ".keys"); subsetfile <- tempfile(fileext = ".txt")
-  on.exit(unlink(c(keyfile, subsetfile)), add = TRUE)
-  fwrite(unique(keys[, .(CHR, POS, ref_allele, eff_allele)]), keyfile, sep = "\t", col.names = FALSE)
-  awk <- 'NR==FNR {k[$1 FS $2 FS $3 FS $4]=1; next} FNR==1 {print; next} {c=$1; sub(/^chr/, "", c); if ((c FS $2 FS toupper($4) FS toupper($5)) in k) print}'
-  cmd <- sprintf("gzip -dc %s | awk %s %s - > %s", shQuote(infile), shQuote(awk), shQuote(keyfile), shQuote(subsetfile))
-  if (system2("bash", c("-o", "pipefail", "-c", shQuote(cmd))) != 0L) stop("Genotype extraction failed.")
-  con <- file(subsetfile, "r"); first <- readLines(con, n = 2L); close(con)
-  if (length(first) < 2L) return(NULL)
-  header <- strsplit(trimws(first[1]), "[[:space:]]+")[[1]]
-  header[1] <- "CHR"
-  g <- fread(subsetfile, header = FALSE, skip = 1L, check.names = FALSE)
-  if (ncol(g) != length(header) || anyDuplicated(header)) stop("Invalid genotype header.")
-  setnames(g, header)
-  if (!all(c("CHR", "POS", "REF", "ALT") %in% names(g))) stop("Expected CHR, POS, REF, ALT dosage columns.")
-  g[, `:=`(CHR = as.integer(sub("^chr", "", CHR)), POS = as.integer(POS))]
-  g[, key := variant_key(CHR, POS, REF, ALT)]
-  if (anyDuplicated(g$key)) stop("Duplicate allele-specific genotype variants.")
-  g
+  drive_pheno <- read.csv(file.path(drive_pheno_dir, 'oncoarray-drive.pheno.csv'))
+  drive_pheno$subject_index <- as.character(drive_pheno$subject_index)
+  pca_result <- fread(file.path(
+    drive_geno_dir, 'oncoarray_principal_components_fastmode_2020-10-17.txt'
+  ))
+  names(pca_result) <- c('FID', paste0('PC', 1:10))
+  covariates <- drive_pheno %>%
+    select(subject_index, FID, genotyping_center, age_int) %>%
+    inner_join(pca_result, by = 'FID') %>% select(-FID) %>%
+    mutate(age_int = if_else(age_int == 888, NA_real_, as.numeric(age_int))) %>%
+    filter(PC1 <= 0.006) %>% tidyr::drop_na()
+  stopifnot(!anyDuplicated(covariates$subject_index),
+            !anyDuplicated(drive_pheno$subject_index))
 }
 
-# 4. Run each SNP GWAS once per chromosome, then test each gene using aligned W/Z/LD inputs.
 run_chr <- function(chr) {
-  wc <- w[CHR == chr]
-  out <- unique(wc[, .(Gene_ID = gene, CHR)])
-  out[, `:=`(p_o_1 = NA_real_, p_o_2 = NA_real_, p_o_3 = NA_real_, p_o = NA_real_,
-             n0 = NA_integer_, n1 = NA_integer_, n_snps = 0L, status = "pending", error = "")]
-  out[, n_model_snps := as.integer(table(wc$gene)[Gene_ID])]
-  tryCatch({
-    g <- read_chr(chr, wc)
-    if (is.null(g)) { out[, status := "no_matching_variants"]; return(out) }
-    sample_ids <- intersect(names(g), pheno$subject_index)
-    if (length(sample_ids) < 20L) stop("Fewer than 20 matched eligible samples.")
-    a <- pheno[match(sample_ids, subject_index)]
-    D <- a$affection_status
-    n0 <- sum(D == 0); n1 <- sum(D == 1)
-    set(out, j = "n0", value = as.integer(n0)); set(out, j = "n1", value = as.integer(n1))
-    if (!n0 || !n1) stop("Both cases and controls are required.")
-    cov_df <- as.data.frame(a[, c("genotyping_center", "age_int", paste0("PC", 1:10)), with = FALSE])
-    cov_df$genotyping_center <- factor(cov_df$genotyping_center)
-    cov_df <- cov_df[, vapply(cov_df, function(v) length(unique(v)) > 1L, logical(1)), drop = FALSE]
-    cov <- if (ncol(cov_df)) model.matrix(~ ., data = cov_df)[, -1L, drop = FALSE] else matrix(numeric(0), nrow(a), 0L)
-    # Remove linear dependencies including dependencies on the intercept.
-    design <- cbind(Intercept = 1, cov); q <- qr(design)
-    independent <- sort(q$pivot[seq_len(q$rank)]); independent <- independent[independent != 1L]
-    cov <- design[, independent, drop = FALSE]
-    X <- t(as.matrix(g[, ..sample_ids])); storage.mode(X) <- "double"
-    dimnames(X) <- list(sample_ids, g$key)
-    # Use a common sample set for GWAS and LD: drop incomplete/constant variants.
-    keep <- colSums(!is.finite(X)) == 0L
-    keep[keep] <- apply(X[, keep, drop = FALSE], 2, var) > 0
-    X <- X[, keep, drop = FALSE]
-    if (!ncol(X)) stop("No complete, variable SNPs.")
-    if (any(X < 0 | X > 2)) stop("Expected ALT-allele dosages in [0, 2].")
-    gw <- as.data.frame(run_gwas(X = X, D = D, family0 = stats::binomial(), covar = cov, method_binomial = "score"))
-    if (!"Z" %in% names(gw) || nrow(gw) != ncol(X)) stop("run_gwas must return one row per X column, in input order, with column Z.")
-    z <- setNames(gw$Z, colnames(X))
-    for (i in seq_len(nrow(out))) {
-      gene_id <- out$Gene_ID[i]
-      wg <- wc[gene == gene_id & key %in% names(z)[is.finite(z)]]
-      out$n_snps[i] <- nrow(wg)
-      if (!nrow(wg)) { out$status[i] <- "no_usable_snps"; next }
-      W <- as.matrix(wg[, ..weight_cols]); rownames(W) <- wg$key
-      x_g <- X[, wg$key, drop = FALSE]
-      tryCatch({
-        fit <- ctOWAS_assoc_test_K(W = W, gwas_z_score = unname(z[wg$key]), x_g = x_g, n0 = n0, n1 = n1, family = "binomial")
-        p <- c(fit$p_join_vec, fit$p_join)
-        for (k in seq_along(p_cols)) set(out, i, p_cols[k], p[k])
-        out$status[i] <- if (nrow(wg) < out$n_model_snps[i]) "ok_partial_snps" else "ok"
-      }, error = function(e) { out$status[i] <<- "association_failed"; out$error[i] <<- conditionMessage(e) })
-    }
-    out
-  }, error = function(e) { out[status == "pending", `:=`(status = "chromosome_failed", error = conditionMessage(e))]; out })
+  message('\nPreparing chromosome ', chr)
+  model_chr <- mw_input[CHR == chr]
+  if (!nrow(model_chr)) stop('No model variants for chromosome ', chr)
+
+  # STEP 1: Read only variants required by the prediction models.
+  genotype_path <- file.path(
+    drive_geno_dir, sprintf('oncoarray_dosages_chr%02d.txt.gz', chr)
+  )
+  key_path <- tempfile(fileext = '.keys')
+  subset_file <- tempfile(fileext = '.txt')
+  on.exit(unlink(c(key_path, subset_file)), add = TRUE)
+  variant_keys <- unique(model_chr[, .(
+    CHR_key = paste0('chr', CHR), POS,
+    REF = ref_allele, ALT = eff_allele
+  )])
+  fwrite(variant_keys, key_path, sep = '\t', col.names = FALSE)
+  awk_script <- 'BEGIN { FS = "\t" }
+    FILENAME != "-" { k[$1 FS $2 FS $3 FS $4] = 1; next }
+    FNR == 1 { print; next }
+    match($0, /^[^\t]*\t[^\t]*\t[^\t]*\t[^\t]*\t[^\t]*/) {
+      split(substr($0, 1, RLENGTH), a, FS)
+      c = a[1]; sub(/^chr/, "", c); c = "chr" c
+      if ((c FS a[2] FS toupper(a[4]) FS toupper(a[5])) in k) print
+    }'
+  cmd <- sprintf('gzip -dc %s | awk %s %s - > %s',
+                 shQuote(genotype_path), shQuote(awk_script),
+                 shQuote(key_path), shQuote(subset_file))
+  status <- system2('bash', c('-o', 'pipefail', '-c', shQuote(cmd)))
+  if (status != 0L) stop('Genotype filtering failed for chromosome ', chr)
+  drive_genome <- fread(subset_file, header = TRUE, check.names = FALSE)
+  setnames(drive_genome, 1L, 'CHR')
+  drive_genome[, `:=`(
+    CHR = as.integer(sub('^chr', '', CHR)), POS = as.integer(POS),
+    REF = toupper(REF), ALT = toupper(ALT)
+  )]
+  if (!nrow(drive_genome)) stop('No matching genotype variants: chromosome ', chr)
+
+  # Assumes the original genotype file has nine metadata columns.
+  SampleID <- intersect(names(drive_genome)[-(1:9)], covariates$subject_index)
+  D <- drive_pheno$affection_status[match(SampleID, drive_pheno$subject_index)]
+  # Use the same observed outcomes for GWAS and all association tests.
+  keep <- !is.na(D)
+  SampleID <- SampleID[keep]
+  D <- D[keep]
+  if (!length(D) || !all(D %in% c(0, 1)) || length(unique(D)) != 2L) {
+    stop('affection_status must contain both 0 and 1 among retained samples.')
+  }
+  cov <- as.data.frame(covariates)[
+    match(SampleID, covariates$subject_index),
+    setdiff(names(covariates), 'subject_index'), drop = FALSE
+  ]
+  cov_mat <- model.matrix(~ ., data = cov)[, -1, drop = FALSE]
+  stopifnot(nrow(cov_mat) == length(D))
+  geno_cols <- c(names(drive_genome)[1:9], SampleID)
+  drive_genome2 <- drive_genome[, ..geno_cols]
+  mw_drive_input <- merge(
+    model_chr, drive_genome2,
+    by.x = c('CHR', 'POS', 'ref_allele', 'eff_allele'),
+    by.y = c('CHR', 'POS', 'REF', 'ALT'), all = FALSE
+  )
+  if (!nrow(mw_drive_input)) stop('No merged variants: chromosome ', chr)
+  X_genome <- t(as.matrix(mw_drive_input[, ..SampleID]))
+
+  # STEP 2: GWAS (same method as the original script).
+  drive_gwas_result <- as.data.frame(run_gwas(
+    X = X_genome, D = D, family0 = stats::binomial(),
+    covar = cov_mat, method_binomial = 'score'
+  ))
+  stopifnot(nrow(drive_gwas_result) == nrow(mw_drive_input),
+            'Z' %in% names(drive_gwas_result))
+  fwrite(
+    cbind(mw_drive_input[, .(CHR, POS, ref_allele, eff_allele)],
+          drive_gwas_result),
+    file.path(results_dir, sprintf('drive_gwas_3ct_chr%02d.tsv', chr)), sep = '\t'
+  )
+
+  # STEP 3: Cache inputs before running the other association models.
+  # Cache contains individual-level genotypes; compress=FALSE favors speed.
+  drive_input_total <- cbind(drive_gwas_result, as.data.frame(mw_drive_input))
+  saveRDS(list(
+    input = drive_input_total, SampleID = SampleID,
+    n0 = sum(D == 0), n1 = sum(D == 1)
+  ), file.path(cache_dir, sprintf('DRIVE_ctOWAS_3ct_input_chr%02d.rds', chr)),
+  compress = FALSE)
+
+  invisible(chr)
 }
 
-# 5. Save per-chromosome results and global BH FDR across genes for each test.
-# NA marks failed/unavailable tests; it is never replaced with an observed p-value.
-res <- lapply(sort(unique(w$CHR)), function(chr) {
-  message("Processing chromosome ", chr)
-  out <- run_chr(chr)
-  fwrite(out, file.path(results_dir, sprintf("DRIVE_ctOWAS_3ct_chr%02d.csv", chr)))
-  gc(verbose = FALSE)
-  out
-})
-drive_result_all <- rbindlist(res, use.names = TRUE)
-for (k in seq_along(p_cols)) {
-  p <- drive_result_all[[p_cols[k]]]; fdr <- rep(NA_real_, length(p)); ok <- is.finite(p)
-  fdr[ok] <- p.adjust(p[ok], method = "BH")
-  set(drive_result_all, j = sub("^p_", "fdr_", p_cols[k]), value = fdr)
+# Separate ctOWAS analysis -------------------------------------------
+run_ctowas_chr <- function(chr, tag = 'default', reg_scale = NULL) {
+  message('\nRunning ctOWAS: chromosome ', chr)
+  cached <- readRDS(file.path(cache_dir, sprintf('DRIVE_ctOWAS_3ct_input_chr%02d.rds', chr)))
+  input <- as.data.frame(cached$input)
+  SampleID <- cached$SampleID
+  drive_split_df <- split(input, input$gene)
+  drive_gene <- names(drive_split_df)
+  drive_result <- data.frame(
+    Gene_ID = drive_gene,
+    z_1 = NA_real_, z_2 = NA_real_, z_3 = NA_real_,
+    p_1 = NA_real_, p_2 = NA_real_, p_3 = NA_real_, p_joint = NA_real_
+  )
+  for (g in seq_along(drive_gene)) {
+    gene_df <- drive_split_df[[drive_gene[g]]]
+    message('Processing gene: ', drive_gene[g])
+    new_x <- t(as.matrix(gene_df[, SampleID, drop = FALSE]))
+    args <- list(gwas_z_score = gene_df$Z, x_g = new_x,
+                 n0 = cached$n0, n1 = cached$n1, family = 'binomial')
+
+    # ctOWAS with its own prediction weights
+    W <- as.matrix(gene_df[, c('Cell1', 'Cell2', 'Cell3'), drop = FALSE])
+    if (any(W != 0)) {
+      own_args <- c(list(W = W), args)
+      if (!is.null(reg_scale)) own_args$reg_scale <- reg_scale
+      fit <- do.call(ctOWAS_assoc_test_K, own_args)
+      drive_result[g, c('z_1', 'z_2', 'z_3', 'p_1', 'p_2', 'p_3', 'p_joint')] <-
+        c(fit$Z_join, fit$p_join_vec, fit$p_join)
+    }
+
+  }
+  fwrite(drive_result, file.path(
+    results_dir, sprintf('DRIVE_ctOWAS_3ct_%s_chr%02d.csv', tag, chr)
+  ))
+
+  drive_result
 }
-fwrite(drive_result_all, file.path(results_dir, "DRIVE_ctOWAS_3ct_all_chr.csv"))
-print(drive_result_all[, .N, by = status])
-print(drive_result_all[, lapply(.SD, function(p) sum(p < 0.1, na.rm = TRUE)), .SDcols = sub("^p_", "fdr_", p_cols)])
+
+# Parallel execution; propagate worker errors to the main session.
+run_chromosomes <- function(FUN, ...) {
+  if (.Platform$OS.type == 'windows' || mc_cores == 1L) {
+    out <- lapply(chromosomes, FUN, ...)
+  } else {
+    out <- parallel::mclapply(chromosomes, FUN, ..., mc.cores = mc_cores)
+  }
+  failed <- vapply(out, inherits, logical(1), what = 'try-error')
+  if (any(failed)) stop('Failed chromosomes: ', paste(chromosomes[failed], collapse = ', '))
+  out
+}
+
+if (run_preparation) res_input <- run_chromosomes(run_chr)
+if (run_ctowas) {
+  res_ctowas <- run_chromosomes(
+    run_ctowas_chr, tag = ctowas_tag,
+    reg_scale = ctowas_reg_scale
+  )
+}
+
+# Merge all chromosome results; require every requested chromosome.
+combine_ctowas_results <- function(tag = 'default', chr = chromosomes) {
+  files <- file.path(results_dir,
+    sprintf('DRIVE_ctOWAS_3ct_%s_chr%02d.csv', tag, chr))
+  if (any(!file.exists(files))) {
+    stop('Missing chromosome files:\n',
+         paste(files[!file.exists(files)], collapse = '\n'))
+  }
+  result <- rbindlist(lapply(seq_along(files), function(i) {
+    dat <- fread(files[i])
+    dat[, CHR := chr[i]]
+    dat
+  }), use.names = TRUE)
+  setcolorder(result, c('Gene_ID', 'CHR', 'z_1', 'z_2', 'z_3',
+                       'p_1', 'p_2', 'p_3', 'p_joint'))
+  setorder(result, CHR, Gene_ID)
+  fwrite(result, file.path(results_dir,
+    sprintf('DRIVE_ctOWAS_3ct_%s_all_chr.csv', tag)))
+  result
+}
+
+if (run_ctowas) {
+  drive_result_all <- combine_ctowas_results(ctowas_tag)
+  if (interactive()) View(drive_result_all)
+}
+
+
+
+# ------ Harvest three-cell-type ctOWAS results -----------------------
+
+library(data.table)
+
+ctowas_tag <- "default"
+chromosomes <- 1:22
+
+files <- file.path(
+  results_dir,
+  sprintf("DRIVE_ctOWAS_3ct_%s_chr%02d.csv", ctowas_tag, chromosomes)
+)
+
+if (any(!file.exists(files))) {
+  stop("Missing files:\n", paste(files[!file.exists(files)], collapse = "\n"))
+}
+
+results_all_3ct <- rbindlist(
+  lapply(seq_along(files), function(i) {
+    dat <- fread(files[i])
+    dat[, CHR := chromosomes[i]]
+    dat
+  }),
+  use.names = TRUE
+)
+
+# Check uniqueness
+stopifnot(
+  !anyDuplicated(results_all_3ct[, .(CHR, Gene_ID)])
+)
+
+setcolorder(
+  results_all_3ct,
+  c("Gene_ID", "CHR", "z_1", "z_2", "z_3",
+    "p_1", "p_2", "p_3", "p_joint")
+)
+
+setorder(results_all_3ct, CHR, Gene_ID)
+
+fwrite(
+  results_all_3ct,
+  file.path(
+    results_dir,
+    sprintf("DRIVE_ctOWAS_3ct_%s_all_chr.csv", ctowas_tag)
+  )
+)
+
+dim(results_all_3ct)
+head(results_all_3ct)

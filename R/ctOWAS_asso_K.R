@@ -31,7 +31,7 @@
 #'   regularized correlation matrix down to \code{condition_max}, bounded by
 #'   \code{reg_min_scale} and \code{reg_max_scale}.
 #' @param reg_scale Nonnegative regularization scale used when
-#'   \code{regularization = "fixed"}. Default \code{0.1}.
+#'   \code{regularization = "fixed"}. Default \code{0.01}.
 #' @param condition_max Target condition number when
 #'   \code{regularization = "estimate"}. Default \code{100}.
 #' @param reg_min_scale Lower bound for the estimated scale. This value is
@@ -135,7 +135,7 @@ ctOWAS_assoc_test_K <- function(W,
                                  n1,
                                  family = c("binomial", "gaussian"),
                                  regularization = c("fixed", "estimate"),
-                                 reg_scale = 0.1,
+                                 reg_scale = 0.01,
                                  condition_max = 100,
                                  reg_min_scale = 0.001,
                                  reg_max_scale = 0.1) {

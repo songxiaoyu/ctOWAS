@@ -10,15 +10,23 @@ library(ggforce)
 library(bacon)
 
 
+# local path to change for reproducible study in a different computer
 paper_dir <- "/Users/songxiaoyu152/NUS Dropbox/Xiaoyu Song/Density_Song/Paper_PWAS"
 model_tag <- Sys.getenv("HERMES_MODEL_TAG", "ctOWAS")
 workspace_dir <- file.path(paper_dir, "Results", "hermes_pwas", paste0("hermes_workspace_", model_tag))
 result_table <- file.path(workspace_dir, "hermes_result", "hermes_result_pwas.csv")
 figure_dir <- file.path(paper_dir, "Figure")
-dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
+
+
+# for reproducible please change to:
+results_dir='~path to uploaded files'
+# results_dir='/Users/songxiaoyu152/NUS Dropbox/Xiaoyu Song/Density_Song/Paper_PWAS/Manuscript/GB/Reproducibility'
+result_table= file.path(results_dir, "hermes_result_pwas.csv")
+
+
 fdr_cutoff <- 0.1
 
-
+# data
 tab <- fread(result_table)
 
 
@@ -32,19 +40,25 @@ tab[, `:=`(fwer_cardiomyocytes = adjust_p(p_cardiomyocytes, "bonferroni"), fwer_
            fwer_joint = adjust_p(p_join, "bonferroni"), fdr_joint = adjust_p(p_join),
            fdr_cardiomyocytes = adjust_p(p_cardiomyocytes), fdr_other = adjust_p(p_other)
            ),]
-# Supplementary Table 1 ----------
-TableS1 <- tab[, c(
+
+
+# Supplementary Table 3 ----------
+TableS3 <- tab[, c(
   "gene_id", "gene_name", "chr", "input_snp_num",
   "Z_cardiomyocytes", "p_cardiomyocytes", "Z_other", "p_other",
   "p_join", "fwer_cardiomyocytes", "fwer_other", "fwer_joint", "fdr_cardiomyocytes", "fdr_other",
   "fdr_joint"
 )]
 
-names(TableS1) <- sub("_other$", "_noncardiomyocytes", names(TableS1))
-writexl::write_xlsx(TableS1, "Github/result/TableS1.xlsx")
+names(TableS3) <- sub("_other$", "_noncardiomyocytes", names(TableS3))
+writexl::write_xlsx(TableS1, file.path(paper_dir, "Github/result/TableS3.xlsx"))
 
 
-# plot ----------------
+
+#  -----------------------------
+# ---------------- plot ----------------
+#  -----------------------------
+# QQ plot ---------------
 make_qq_plot <- function(tab) {
   qq <- copy(tab[valid_p(p_join)])
   if (!nrow(qq)) stop("No valid joint p-values for QQ plot.", call. = FALSE)
@@ -57,8 +71,8 @@ make_qq_plot <- function(tab) {
   lambda_gc <- as.numeric(bacon::inflation(bc))
   qq[, `:=`(obs = -log10(p), exp = -log10(ppoints(.N)))]
   qq[, gene := fifelse(is.na(gene_name) | gene_name == "", as.character(gene_id), as.character(gene_name))]
-  qq[, sig_group := fifelse(fwer_p_joint < 0.05, "FWER < 0.05",
-                            fifelse(fdr_p_joint < 0.1, "FDR < 0.1", "Not labelled"))]
+  qq[, sig_group := fifelse(fwer_joint < 0.05, "FWER < 0.05",
+                            fifelse(fdr_joint < 0.1, "FDR < 0.1", "Not labelled"))]
   labels <- qq[sig_group != "Not labelled"]
   qq[, plot_label := fifelse(sig_group == "Not labelled", "", gene)]
   ggplot(qq, aes(exp, obs)) +
@@ -80,7 +94,7 @@ make_qq_plot <- function(tab) {
 }
 
 p1 = make_qq_plot(tab)
-
+p1
 # Count Number  -----------------------
 make_count_venn <- function(tab) {
   # Compare genes with valid tests in both cell types; BH adjustment above uses all valid tests per set.
@@ -103,10 +117,8 @@ make_count_venn <- function(tab) {
 }
 
 p2=make_count_venn(tab)
+p2 # not used need to provide name instead of numbers
 
-
-
-# Write gene name --------------
 
 # Write gene names: red first, then black, from top to bottom.
 tab[, `:=`(fwer_cardiomyocytes = adjust_p(p_cardiomyocytes, "bonferroni"),
@@ -167,7 +179,7 @@ plot_gene_venn <- ggplot() +
   theme(legend.position = "none")
 
 p3 <- plot_gene_venn
-
+p3
 # combine
 
 combined_plot <- plot_grid(p1, p3, ncol = 2, labels = c("A", "B"),
@@ -178,7 +190,11 @@ combined_plot <- plot_grid(p1, p3, ncol = 2, labels = c("A", "B"),
 figure_path <- file.path(figure_dir, "Figure_HERMES_QQ_venn.pdf")
 ggsave(figure_path, combined_plot, width = 10.2, height = 5.2)
 
-# ---------Table S--------------------
+
+
+# ---------------------------------------------------------
+# ---------Save Table S3 with Significant Genes Only (with * for significance level)--------------------
+# ---------------------------------------------------------
 
 # Input and annotation.
 ensembl38 <- janitor::clean_names(readr::read_csv(file.path(data_dir, "ensembl38.txt"), show_col_types = FALSE))
@@ -251,7 +267,7 @@ setcolorder(out, c("gene_id", "gene_name", "chr", "cytoband", "input_snp_num",
                    "Z_cardiomyocytes", "p_cardiomyocytes", "Z_non_cardiomyocytes", "p_non_cardiomyocytes", "p_join"))
 
 
-output_file <- "/Users/songxiaoyu152/NUS Dropbox/Xiaoyu Song/Density_Song/Paper_PWAS/Github/result/Table_S1.csv"
+output_file <- "/Users/songxiaoyu152/NUS Dropbox/Xiaoyu Song/Density_Song/Paper_PWAS/Github/result/Table_S3_sig.csv"
 dir.create(dirname(output_file), recursive = TRUE, showWarnings = FALSE)
 fwrite(out, output_file, na = "NA")
 cat("Saved", nrow(out), "genes to:", output_file, "\n")

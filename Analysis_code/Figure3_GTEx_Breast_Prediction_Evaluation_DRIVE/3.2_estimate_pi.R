@@ -6,8 +6,7 @@ library(tidyverse)
 library(janitor)
 library(ggplot2)
 
-setwd('/Users/songxiaoyu152/NUS Dropbox/Xiaoyu Song/Density_Song/Paper_PWAS')
-paper_dir=getwd()
+paper_dir='/Users/songxiaoyu152/NUS Dropbox/Xiaoyu Song/Density_Song/Paper_PWAS'
 data_dir <- file.path(paper_dir, "Data")
 results_dir <- file.path(paper_dir, "Results")
 
@@ -25,7 +24,7 @@ lengths(markers)
 save(markers, file = file.path(results_dir, "markers.RData"))
 
 #  marker ensemble data --------------
-load(file.path(results_dir, "markers.RData"))
+# load(file.path(results_dir, "markers.RData"))
 
 markers_ensembl <- lapply(markers, \(x) na.omit(ensembl38$gene_stable_id[match(x, ensembl38$gene_name)]) |>as.character())
 lengths(markers_ensembl)
@@ -110,10 +109,27 @@ save(xCellScore, file = file.path(results_dir, "xCellScore.RData"))
 
 
 
+# ------------Estimate pi for 2 Cell Types using NEW method ---------
+# New method:  New pi estimate_k (k=2) - TSNet_K + xCell2 - need to change ensemble ID to gene name first.
+load(file.path(results_dir, "xCellScore.RData"))
 
-# ------------Estimate Cell Type Composition for 3 Cell Types for 125 Samples---------
+cell_type_2 <- list(Epithelial = "Epithelial", Stromal = c("Adipocyte", "Fibroblast"))
+pi_prior <- estimate_prior(xCellScore = xCellScore, cell_types = cell_type_2, mu = c(0.4, 0.6))
 
-# Method 1: Old pi estimate - TSNet + xCell - need to change ensemble ID to gene name first.
+apply(pi_prior, 2 ,summary)
+## work on unique markers
+all_markers <- unlist(markers, use.names = FALSE)
+expr2_all <- expr2[all_markers,,drop = FALSE]
+dim(expr2_all)
+marker_list_2 <- list(Epithelial = markers[["Epithelial"]],
+                      Stromal = unique(c(markers[["Adipocyte"]], markers[["Fibroblast"]])))
+
+pi2_new <- pi_estimation_K(expr = expr2_all, prior = pi_prior, marker_list=marker_list_2,
+                           n_iteration = 100, seed = 1, verbose = T)
+
+
+# ------------Estimate pi for 2 Cell Types using OLD method for comparison ---------
+# Old Method:  TSNet + xCell - need to change ensemble ID to gene name first.
 library(xCell)
 
 xCellScore=xCellAnalysis(expr=expr2)
@@ -131,119 +147,58 @@ pi2_old=pi_estimation_2(expr=expr2_epi, prior=prior$est, n_iteration=100, seed=1
 write.csv(pi2_old,file = file.path(results_dir, "pi2_old_GTEx.csv"),row.names = F)
 pi2_old <- read_csv(file.path(results_dir, "pi2_old_GTEx.csv"))
 
-# Method 2:  New pi estimate_k (k=2) - TSNet_K + xCell2 - need to change ensemble ID to gene name first.
 
-source('Github/R/deNet_composition_K.R')
-load(file.path(results_dir, "xCellScore.RData"))
-cell_type_2 <- list(Epithelial = "Epithelial", Stromal = c("Adipocyte", "Fibroblast"))
-pi_prior <- estimate_prior(xCellScore = xCellScore, cell_types = cell_type_2, mu = c(0.4, 0.6))
 
-apply(pi_prior, 2 ,summary)
-## work on unique markers
-all_markers <- unlist(markers, use.names = FALSE)
-expr2_all <- expr2[all_markers,,drop = FALSE]
-dim(expr2_all)
-marker_list_2 <- list(Epithelial = markers[["Epithelial"]],
-                      Stromal = unique(c(markers[["Adipocyte"]], markers[["Fibroblast"]])))
+# ------------Estimate pi for 2 Cell Types using BayeDeBulk for comparison ---------
 
-pi2_new <- pi_estimation_K(expr = expr2_all, prior = pi_prior, marker_list=marker_list_2,
-                           n_iteration = 100, seed = 1, verbose = T)
+library(BayesDeBulk)
 
-# Method 3:  pi estimate_k (k=3) - TSNet + xCell - need to change ensemble ID to gene name first.
+# Prepare marker matrix: higher-expression cell type, other cell type, gene
+markers_bayes <- rbind(cbind("Epithelial", "Stromal", marker_list_2$Epithelial),cbind("Stromal", "Epithelial", marker_list_2$Stromal))
+# Use the marker expression only
+expr_bayes <- as.matrix(expr2)[rownames(expr2) %in% markers_bayes[, 3], , drop = FALSE]
+
+set.seed(1)
+fit_bayes <- BayesDeBulk::BayesDeBulk(n.iter = 2000, burn.in = 1000, Y = list(expr_bayes), markers = markers_bayes)
+
+# Extract estimated cell-type proportions
+pi2_bayes <- fit_bayes$cell.fraction
+head(pi2_bayes)
+summary(pi2_bayes)
+
+# ------------Estimate pi for 2 Cell Types using TCA for comparison ---------
+
+library(TCA)
+
+# Fit TCA and re-estimate cell-type proportions
+fit_tca <- TCA::tca(X = expr2, W = pi_prior, refit_W = TRUE, refit_W.features = rownames(expr2), max_iters = 10, num_cores = 1)
+
+# Extract estimated cell-type proportions
+pi2_tca <- fit_tca$W
+head(pi2_tca)
+summary(pi2_tca)
+
+
+# save
+pi2_mixcan=cbind(Epithelial=pi2_old$mean_trim_0.05, Stromal = (1-pi2_old$mean_trim_0.05))
+save(pi2_mixcan, pi2_new, pi2_bayes, pi2_tca,  file = file.path(results_dir, "GTEx_pi2_comparison.RData"))
+
+# ------------Estimate pi for 3 Cell Types using NEW method ---------
+
+# New method:  pi estimate_k (k=3) - TSNet + xCell - need to change ensemble ID to gene name first.
 
 cell_type_3 <- list(Epithelial = "Epithelial", Adipocyte = c("Adipocyte"), Fibroblast = "Fibroblast")
 pi_prior <- estimate_prior(xCellScore = xCellScore, cell_types = cell_type_3, mu = c(0.4, 0.5, 0.1))
 # cite: Muse, Meghan E., et al. "Application of novel breast biospecimen cell-type adjustment identifies shared DNA methylation alterations in breast tissue and milk with breast cancer–risk factors." Cancer Epidemiology, Biomarkers & Prevention 32.4 (2023): 550-560.
 
 
-pi_once=deNet_composition_K_once(expr =t(expr2_all) , composition = pi_prior,
-                                 marker_list=markers)
+pi_once=deNet_composition_K_once(expr =t(expr2_all) , composition = pi_prior,marker_list=markers)
 
 pi3_new <- pi_estimation_K(expr = expr2_all, prior = pi_prior, marker_list=markers,
                            n_iteration = 100, seed = 1, verbose = F)
 
 
 save(female_white, geno, expr, expr2, genID, cov, ENweights, ensembl38, markers, markers_ensembl,
-     pi2_old,  pi2_new,pi3_new, file = file.path(results_dir, "GTEx_clean_pi.RData"))
+     pi2_old,  pi2_new, pi3_new, file = file.path(results_dir, "GTEx_clean_pi.RData"))
 
-
-
-# ----------------------------------------------------------------------
-# -------------------- Plot the results ----------
-# ----------------------------------------------------------------------
-
-
-cor_by_marker <- function(marker, proportion) {
-  apply(expr2[intersect(marker, rownames(expr2)), ], 1,
-        \(x) cor(x, proportion, use = "pairwise.complete.obs"))}
-
-plot_df <- bind_rows(
-  # Two cell types: epithelial vs stromal (adi + fibr)
-  tibble(correlation = cor_by_marker(markers$Epithelial, pi2_old$mean_trim_0.05),
-         cell_type = "Epithelial", method = "MiXcan", panel = "Two Cell Types"),
-  tibble(correlation = c(
-    cor_by_marker(markers$Adipocyte, 1 - pi2_old$mean_trim_0.05),
-    cor_by_marker(markers$Fibroblast, 1 - pi2_old$mean_trim_0.05)),
-    cell_type = "Stromal", method = "MiXcan", panel = "Two Cell Types"),
-  tibble(correlation = cor_by_marker(markers$Epithelial, pi2_new[, 1]),
-         cell_type = "Epithelial", method = "ctOWAS", panel = "Two Cell Types"),
-  tibble(correlation = c(
-    cor_by_marker(markers$Adipocyte, pi2_new[, 2]),
-    cor_by_marker(markers$Fibroblast, pi2_new[, 2])),
-    cell_type = "Stromal", method = "ctOWAS", panel = "Two Cell Types"),
-
-  # Three cell types: ctOWAS
-  tibble(correlation = cor_by_marker(markers$Epithelial, pi_once$Ecomposition[, 1]),
-         cell_type = "Epithelial", method = "ctOWAS", panel = "Three Cell Types"),
-  tibble(correlation = cor_by_marker(markers$Adipocyte, pi_once$Ecomposition[, 2]),
-         cell_type = "Adipocyte", method = "ctOWAS", panel = "Three Cell Types"),
-  tibble(correlation = cor_by_marker(markers$Fibroblast, pi_once$Ecomposition[, 3]),
-         cell_type = "Fibroblast", method = "ctOWAS", panel = "Three Cell Types")
-) %>%
-  filter(is.finite(correlation))
-
-plot_df <- plot_df %>%
-  mutate(
-    panel = factor(panel, levels = c("Two Cell Types", "Three Cell Types")),
-    cell_type = factor(
-      cell_type,
-      levels = c("Epithelial", "Stromal", "Adipocyte", "Fibroblast")
-    ),
-    method = factor(method, levels = c("MiXcan", "ctOWAS"))
-  )
-
-ggplot(plot_df, aes(cell_type, correlation, fill = method)) +
-  geom_boxplot(width = 0.65, outlier.size = 0.7) +
-  facet_wrap(~ panel, nrow = 1, scales = "free_x") +
-  scale_fill_manual(values = c(MiXcan = "#4C78A8", ctOWAS = "#CC79A7")) +
-  labs(x = NULL, y = "Marker gene–proportion correlation", fill = NULL) +
-  theme_classic(base_size = 14) +
-  theme(
-    legend.position = "top",
-    strip.background = element_blank(),
-    strip.text = element_text(face = "bold")
-  )
-
-
-# two cell type plot
-two_ct_df <- plot_df %>%
-  filter(panel == "Two Cell Types") %>%
-  mutate(
-    cell_type = factor(cell_type,
-                       levels = c("Epithelial", "Stromal")),
-    method = factor(method, levels = c("MiXcan", "ctOWAS"))
-  )
-
-ggplot(two_ct_df, aes(cell_type, correlation, fill = method)) +
-  geom_boxplot(width = 0.65, outlier.size = 0.7) +
-  scale_fill_manual(values = c(MiXcan = "#4C78A8", ctOWAS = "#CC79A7")) +
-  labs(
-    x = NULL,
-    y = "Marker Gene–Proportion Correlation",
-    fill = NULL
-  ) +
-  theme_classic(base_size = 14) +
-  theme(
-    legend.position = "top",
-    plot.title = element_text(hjust = 0.5, face = "bold")
-  )
+# load(file.path(results_dir, "GTEx_clean_pi.RData"))

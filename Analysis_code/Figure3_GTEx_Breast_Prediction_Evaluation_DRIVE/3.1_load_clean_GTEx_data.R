@@ -12,9 +12,9 @@ data_dir <- file.path(paper_dir, "Data")
 gtex_dir <- file.path(data_dir, "GTEx_Breast")
 results_dir <- file.path(paper_dir, "Results")
 
-load(file.path(results_dir, "markers.RData"))
-load(file.path(results_dir, "markers_ensembl.RData"))
-load(file.path(results_dir, "xCellScore.RData"))
+# load(file.path(results_dir, "markers.RData"))
+# load(file.path(results_dir, "markers_ensembl.RData"))
+# load(file.path(results_dir, "xCellScore.RData"))
 
 # 1. Sample information - female white participants only
 
@@ -83,11 +83,13 @@ G
 
 # Save all data
 
-save(female_white, geno, expr, expr2, genID, cov, ENweights, ensembl38, file = file.path(results_dir, "GTEx_clean.RData"))
+save(female_white, geno, expr, expr2, genID, cov, ENweights, ensembl38,
+     file = file.path(results_dir, "GTEx_clean.RData"))
+
+save(expr2, file = file.path(results_dir, "GTEx_expr2.RData"))
 
 
-
-# To save into example data in R package ---------------
+# To save into example "expr" and "marker" data in R package ---------------
 
 pkg_dat_dir = file.path(paper_dir, "Github/data")
 expr=expr2

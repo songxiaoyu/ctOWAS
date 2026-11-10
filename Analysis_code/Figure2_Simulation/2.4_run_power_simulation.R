@@ -33,6 +33,7 @@ b1 <- 1
 b2 <- 1
 group <- "heter xy"
 
+# setting 2-5
 scenarios <- data.table(
   scenario_id = c("S2", "S3", "S4", "S5"),
   scenario = c("eta1 = 0.2, eta2 = 0.2", "eta1 = 0.2, eta2 = 0",

@@ -16,8 +16,8 @@ library(doParallel)
 library(dplyr)
 library(ctOWAS)
 
-setwd("/Users/songxiaoyu152/NUS Dropbox/Xiaoyu Song/Density_Song/Paper_PWAS")
-paper_dir <- getwd()
+
+paper_dir <- "/Users/songxiaoyu152/NUS Dropbox/Xiaoyu Song/Density_Song/Paper_PWAS"
 results_dir <- file.path(paper_dir, "Results")
 
 
@@ -33,10 +33,11 @@ n_cores <- max(1L, parallel::detectCores() - 2L)
 cl <- parallel::makeCluster(n_cores)
 doParallel::registerDoParallel(cl)
 
-
+# SLC4A7:   yName="ENSG00000033867.16"; j=4616
+# AC244021.1: ENSG00000227082.1; j=3031
+# SRGAP2C: ENSG00000171943.11; j=3030
 res <- foreach(j = seq_len(G), .packages = c("glmnet", "data.table"),
   .export = c("ctOWAS_train_K", "MiXcan"),.errorhandling = "pass") %dopar% {
-
 
   # Current gene and its SNP annotation in the elastic-net reference model.
   yName=genID[j]
@@ -46,9 +47,8 @@ res <- foreach(j = seq_len(G), .packages = c("glmnet", "data.table"),
   n=length(nName)
 
   # Align expression, genotype, covariates, and cell-type proportions by sample ID.
-  yData=t(expr2[which(rownames(expr)==yName), match(nName, colnames(expr))])
-  xData=t(geno[match(xName, geno$ID), match(nName, colnames(geno)), with = FALSE]);
-  storage.mode(xData) <- "double"
+  yData=t(expr[which(rownames(expr)==yName), match(nName, colnames(expr))])
+  xData=t(geno[match(xName, geno$ID), match(nName, colnames(geno)), with = FALSE]); storage.mode(xData) <- "double"
   zData=cov[match(nName, cov$SUBJID),-1]; zData=zData[,-ncol(zData)]
   pi1 <- as.numeric(pi2_new[,1][match(nName, rownames(pi2_new))])
   pi2 <- as.numeric(pi2_old[["mean_trim_0.05"]][match(nName, pi2_old$sample)])
@@ -58,31 +58,22 @@ res <- foreach(j = seq_len(G), .packages = c("glmnet", "data.table"),
   # Keep samples with complete genotype and expression data.
   cp.idx=complete.cases(xData) & complete.cases(yData)
 
-  # Keep SNPs with mean genotype > 0.05 among complete samples.
-  # Handle the single-SNP case separately so matrix dimensions stay valid.
-  px=ncol(xData)
-  if (px>1) {
-    xvar0=which(apply(xData[cp.idx,], 2, function(f) mean(f)>0.05))
-    x.complete=xData[cp.idx,xvar0]
-  }
-  if (px==1) {
-    if (mean(xData[cp.idx, 1]) > 0.05) {
-      xvar0 <- 1L
-      x.complete <- matrix(xData[cp.idx, 1], ncol = 1)
-    } else {
-      xvar0 <- integer(0)
-      x.complete <- matrix(numeric(0), nrow = sum(cp.idx), ncol = 0)
-    }
-  }
-  if (ncol(x.complete) == 0 ||is.null(nrow(x.complete))) {next}
+  # clean x.complete: Keep SNPs with MAF genotype > 0.05 among complete samples.
+  xvar0 <- which(apply(xData[cp.idx, , drop = FALSE], 2, function(f) {
+    af <- mean(f) / 2
+    min(af, 1 - af) > 0.05
+  }))
+  x.complete <- xData[cp.idx, xvar0, drop = FALSE]
+  if (ncol(x.complete) == 0) return(NULL)
 
   z.complete=zData[cp.idx,]
   xz.complete=as.matrix(cbind(x.complete, z.complete))
   y.complete=yData[cp.idx]
   pi1.complete=pi1Data[cp.idx, ]
   pi2.complete=pi2Data[cp.idx, ]
+
   # Create a reproducible 10-fold CV split for this gene.
-  set.seed(1334 + j*14905)
+  set.seed(1335 + j*123)
   foldid= sample(rep(1:10, length.out =  length(y.complete)))
 
   #  y = y.complete;x = x.complete;pi_k = pi1.complete;cov = z.complete; xNameMatrix = xName.all[xvar0,]; alpha=0.5;
@@ -126,67 +117,85 @@ foreach::registerDoSEQ()
 # ------------------------------------------------------------------------------
 # 4. Combine and save gene-level weights
 # ------------------------------------------------------------------------------
-
 # Convert any foreach-level errors into standard result records
-res <- Map(function(x, gene) if (inherits(x, "error")) list(gene = gene, error_parallel = conditionMessage(x)) else x, res, genID[seq_len(G)])
+# ------------------------------------------------------------------------------
+# 4. Combine and save gene-level weights
+# ------------------------------------------------------------------------------
+stopifnot(length(res) == G, length(genID) >= G)
 
-res_weights_s <- lapply(res, `[[`, "weights_s")
-res_intercept_s <- lapply(res, `[[`, "intercept_s")
-res_weights_m_new <- lapply(res, `[[`, "weights_m_new")
-res_intercept_m_new <- lapply(res, `[[`, "intercept_m_new")
-res_weights_m_old <- lapply(res, `[[`, "weights_m_old")
-res_intercept_m_old <- lapply(res, `[[`, "intercept_m_old")
-res_weights_p <- lapply(res, `[[`, "weights_p")
+# Standardize errors/NULL results and restore missing gene IDs
+res <- Map(function(x, gene) {
+  gene <- as.character(gene)
 
-gene_names <- vapply(res, `[[`, character(1), "gene")
-names(res_weights_s) <- names(res_weights_m_new) <-  names(res_weights_m_new) <-names(res_weights_p) <- names(res_intercept_s) <-
-  names(res_intercept_m_new) <-   names(res_intercept_m_new) <- gene_names
+  if (inherits(x, "error")) {
+    x <- list(error_parallel = conditionMessage(x))
+  } else if (is.null(x)) {
+    x <- list()
+  }
 
-keep_2ct <- \(x) {
-  if (is.null(x)) return(NULL)
+  if (length(x$gene) != 1L || is.na(x$gene) || !nzchar(x$gene)) {
+    x$gene <- gene
+  }
 
-  keep <- dplyr::coalesce(x$Cell1, 0) != 0 |
-    dplyr::coalesce(x$Cell2, 0) != 0
+  x
+}, res, genID[seq_len(G)])
 
-  x[keep, , drop = FALSE]
+# Pull each component, tagged by gene
+gene_names <- vapply(res, function(x) as.character(x$gene), character(1))
+pull <- function(field) setNames(lapply(res, `[[`, field), gene_names)
+
+# Empty templates preserve columns when no weights are available
+empty_2ct <- tibble::tibble(
+  gene = character(), Cell1 = double(), Cell2 = double()
+)
+empty_p <- tibble::tibble(
+  gene = character(), tissue = double()
+)
+
+combine_2ct <- function(field) {
+  dplyr::bind_rows(empty_2ct, dplyr::bind_rows(pull(field))) |>
+    dplyr::filter(
+      dplyr::coalesce(Cell1, 0) != 0 |
+        dplyr::coalesce(Cell2, 0) != 0
+    )
 }
-filtered_weights_s <- res_weights_s |>
-  lapply(keep_2ct) |>
-  dplyr::bind_rows()
 
-filtered_intercept_s <- res_intercept_s |>
-  dplyr::bind_rows(.id = "gene")
+# Weights
+filtered_weights_s     <- combine_2ct("weights_s")
+filtered_weights_m_new <- combine_2ct("weights_m_new")
+filtered_weights_m_old <- combine_2ct("weights_m_old")
 
-filtered_weights_m_new <- res_weights_m_new |>
-  lapply(keep_2ct) |>
-  dplyr::bind_rows()
+# Intercepts
+filtered_intercept_s <- dplyr::bind_rows(
+  pull("intercept_s"), .id = "gene"
+)
+filtered_intercept_m_new <- dplyr::bind_rows(
+  pull("intercept_m_new"), .id = "gene"
+)
+filtered_intercept_m_old <- dplyr::bind_rows(
+  pull("intercept_m_old"), .id = "gene"
+)
 
-filtered_intercept_m_new <- res_intercept_m_new |>
-  dplyr::bind_rows(.id = "gene")
-
-filtered_weights_m_old <- res_weights_m_old |>
-  lapply(keep_2ct) |>
-  dplyr::bind_rows()
-
-filtered_intercept_m_old <- res_intercept_m_old |>
-  dplyr::bind_rows(.id = "gene")
-
-
-filtered_weights_p <- res_weights_p |>
-  dplyr::bind_rows() |>
+# PrediXcan
+filtered_weights_p <- dplyr::bind_rows(
+  empty_p, dplyr::bind_rows(pull("weights_p"))
+) |>
   dplyr::filter(dplyr::coalesce(tissue, 0) != 0)
 
+save(
+  filtered_weights_s, filtered_intercept_s,
+  filtered_weights_m_new, filtered_intercept_m_new,
+  filtered_weights_m_old, filtered_intercept_m_old,
+  filtered_weights_p,
+  file = file.path(results_dir, "GTEx_Breast_pi2_ThreeModel_Summary.RData")
+)
 
-save(filtered_weights_s, filtered_intercept_s,
-     filtered_weights_m_new, filtered_intercept_m_new,
-     filtered_weights_m_old, filtered_intercept_m_old,
-     filtered_weights_p, file = file.path(results_dir, "GTEx_Breast_pi2_ThreeModel_Summary.RData"))
-
-length(unique(filtered_weights_s$gene))
-length(unique(filtered_weights_m_new$gene))
-length(unique(filtered_weights_m_old$gene))
-length(unique(filtered_weights_p$gene))
-
-
-
-
+sapply(
+  list(
+    ctOWAS = filtered_weights_s,
+    MiXcan_new = filtered_weights_m_new,
+    MiXcan_old = filtered_weights_m_old,
+    PrediXcan = filtered_weights_p
+  ),
+  function(d) length(unique(d$gene))
+)

@@ -34,12 +34,12 @@ snp_plot[, Method := factor( Method,levels = c("n_snp_predixcan", "n_snp_mixcan"
 snp_plot[, Method := factor(Method, levels = method_levels)]
 
 
-p1 <- ggplot(snp_plot,aes(Method, log2(Number_of_SNPs + 1), fill = Method)) +
+p1 <- ggplot(snp_plot,aes(Method, log10(Number_of_SNPs + 1), fill = Method)) +
   geom_boxplot(outlier.alpha = 0.3) +
   scale_fill_manual( values = method_colors,breaks = method_levels,drop = FALSE) +
   labs(
     x = NULL,
-    y = expression(log[2]("# SNPs" + 1))
+    y = expression(log[10]("# SNPs" + 1))
   ) +
   theme_bw() +
   theme(legend.position = "none")

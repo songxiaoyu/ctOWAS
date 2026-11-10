@@ -1,4 +1,4 @@
-rm(list=ls())
+# rm(list=ls())
 library(data.table)
 library(ctOWAS)
 library(doMC)
@@ -6,8 +6,7 @@ library(tidyverse)
 library(janitor)
 library(ggpubr)
 library(RSQLite)
-library(xCell)
-library(BayesDeBulk)
+library(xCell2)
 
 
 setwd("/Users/songxiaoyu152/NUS Dropbox/Xiaoyu Song/Density_Song/Paper_PWAS")
@@ -16,8 +15,7 @@ data_dir <- file.path(paper_dir, "Data")
 tcga_dir <- file.path(data_dir, "TCGA")
 results_dir <- file.path(paper_dir, "Results")
 figure_dir <- file.path(paper_dir, "Figure")
-source('Github/R/deNet_purity.R')
-source('Github/R/pi_estimation.R')
+
 
 # load TCGA data and clean -----------------
 tcga_white_id <- read_csv(file.path(tcga_dir, "tcga_race.csv")) %>%filter(race == "white") %>% pull(case_submitter_id)
@@ -54,8 +52,6 @@ ensembl38 <-read_csv(file.path(data_dir, "ensembl38.txt")) %>%
 
 
 # # 2. cell type composition estimation (skip unless we want to re-estimate pi) ------------
-# # TSNets pi - narrow to the marker genes
-#
 #
 # expr_TCGA2 <- expr_TCGA %>%
 #   inner_join(ensembl38 %>% distinct(gene_stable_id, .keep_all = TRUE),by = "gene_stable_id") %>%
@@ -134,7 +130,6 @@ ensembl38 <-read_csv(file.path(data_dir, "ensembl38.txt")) %>%
 # )
 # save(xCellScore, file = file.path(results_dir, "xCellScore_TCGA.RData"))
 #
-# source('Github/R/deNet_composition_K.R')
 # cell_type_2 <- list(Epithelial = "Epithelial", Stromal = c("Adipocyte", "Fibroblast"))
 # pi_prior <- estimate_prior(xCellScore = xCellScore, cell_types = cell_type_2, mu = c(0.4, 0.6))
 #
@@ -147,7 +142,7 @@ ensembl38 <-read_csv(file.path(data_dir, "ensembl38.txt")) %>%
 #                       Stromal = unique(c(markers[["Adipocyte"]], markers[["Fibroblast"]])))
 #
 # pi2_TCGA_new <- pi_estimation_K(expr = expr2_all, prior = pi_prior, marker_list=marker_list_2,
-#                            n_iteration = 100, seed = 1, verbose = T)
+#                            n_iteration = 100, seed = 123, verbose = F)
 # pi2_TCGA_new |>
 #   as.data.frame() |>
 #   tibble::rownames_to_column("sample") |>
@@ -155,65 +150,72 @@ ensembl38 <-read_csv(file.path(data_dir, "ensembl38.txt")) %>%
 
 
 
-# 3. load pi2 prediction models -------------------
+# 3. load pi2 prediction models and calculate correlation -------------------
 load('Results/GTEx_Breast_pi2_ThreeModel_Summary.Rdata')
-# filtered_weights_m;filtered_weights_p;filtered_weights_s;
-# filtered_intercept_m;filtered_intercept_s
+# filtered_weights_m;filtered_weights_p;filtered_weights_s; filtered_intercept_m;filtered_intercept_s
 
 pi2 <- read_csv(file.path(results_dir, "pi_TCGA.csv"))
 gene=unique(c(filtered_weights_s$gene,filtered_weights_m_new$gene, filtered_weights_m_old$gene,filtered_weights_p$gene ))
 
+
 cor=  NULL
 for (g in  seq_along(gene)){
-
-  yName=gene[g];
-  yName_TCGA = sub("\\..*$", "", yName)
+  print(g)
+  yName = gene[g];
+  yName_TCGA <- sub("\\..*$", "", yName)
 
   y=expr_TCGA[match(yName_TCGA, expr_TCGA$gene_stable_id), SampleID, drop = FALSE]%>% as.numeric()
+
   if (mean(is.na(y))>0.5) {next}
   pi <- pi2$Epithelial[match(SampleID, pi2$sample)]
+
   # ctOWAS
-
   w_s <- filtered_weights_s[filtered_weights_s$gene == yName, ]
-  i_s <- filtered_intercept_s[match(yName, filtered_intercept_s$gene), ]
-  i_s[-1][is.na(i_s[-1])] <- 0
+  i_s <- filtered_intercept_s[filtered_intercept_s$gene == yName, ]
+  if (nrow(i_s) == 0) { i_s <- tibble::tibble(gene = NA_character_, Cell1 = 0,Cell2 = 0)}
 
-  x_s  <- geno[match(w_s$varID, rownames(geno)), SampleID, drop = FALSE] |> as.matrix() |> t()
-  y_s_hat <- pi * (i_s$Cell1 + x_s %*% w_s$Cell1) + (1 - pi) * (i_s$Cell2 + x_s %*% w_s$Cell2)
+  idx  <- match(w_s$varID, rownames(geno))
+  keep <- !is.na(idx)
+  x_s  <- geno[idx[keep], SampleID, drop = FALSE] |> as.matrix() |> t()
+  y_s_hat <- pi*(i_s$Cell1 + x_s %*%  w_s$Cell1[keep]) + (1-pi)*(i_s$Cell2 + x_s %*% w_s$Cell2[keep])
 
   # mixcan new
-  w_m=filtered_weights_m_new[match(yName, filtered_weights_m_new$gene),]
-  i_m=filtered_intercept_m_new[match(yName, filtered_intercept_m_new$gene),];
-  i_m[-1][is.na(i_m[-1])] <- 0
-  x=geno[match(w_m$varID, rownames(geno)), SampleID, drop = FALSE] %>% as.matrix %>% t()
-  y_m_new_hat= pi*(i_m$Cell1 +x%*% w_m$Cell1) + (1-pi)*(i_m$Cell2 +x%*% w_m$Cell2)
+  w_m=filtered_weights_m_new[filtered_weights_m_new$gene == yName,]
+  i_m=filtered_intercept_m_new[filtered_intercept_m_new$gene == yName,];
+  if (nrow(i_m) == 0) { i_m <- tibble::tibble(gene = NA_character_, Cell1 = 0,Cell2 = 0)}
+  idx  <- match(w_m$varID, rownames(geno))
+  keep <- !is.na(idx)
+  x_m  <- geno[idx[keep], SampleID, drop = FALSE] |> as.matrix() |> t()
+  y_m_new_hat= pi*(i_m$Cell1 +x_m%*% w_m$Cell1[keep]) + (1-pi)*(i_m$Cell2 +x_m%*% w_m$Cell2[keep])
 
   # mixcan old
-   w_m=filtered_weights_m_old[match(yName, filtered_weights_m_old$gene),]
-  i_m=filtered_intercept_m_old[match(yName, filtered_intercept_m_old$gene),];
-  i_m[-1][is.na(i_m[-1])] <- 0
-  x=geno[match(w_m$varID, rownames(geno)), SampleID, drop = FALSE] %>% as.matrix %>% t()
-  y_m_old_hat= pi*(i_m$Cell1 +x%*% w_m$Cell1) + (1-pi)*(i_m$Cell2 +x%*% w_m$Cell2)
-
-
+  w_m=filtered_weights_m_old[filtered_weights_m_old$gene == yName,]
+  i_m=filtered_intercept_m_old[filtered_intercept_m_old$gene == yName,];
+  if (nrow(i_m) == 0) { i_m <- tibble::tibble(gene = NA_character_, Cell1 = 0,Cell2 = 0)}
+  idx  <- match(w_m$varID, rownames(geno))
+  keep <- !is.na(idx)
+  x_m  <- geno[idx[keep], SampleID, drop = FALSE] |> as.matrix() |> t()
+  y_m_old_hat= pi*(i_m$Cell1 +x_m%*% w_m$Cell1[keep] ) + (1-pi)*(i_m$Cell2 +x_m%*% w_m$Cell2[keep])
 
   # prediXcan
-  w_p=filtered_weights_p[match(yName, filtered_weights_p$gene),]
-  x=geno[match(w_p$varID, rownames(geno)), SampleID, drop = FALSE] %>% as.matrix %>% t()
-  y_p_hat= x%*% w_p$tissue
+  w_p=filtered_weights_p[filtered_weights_p$gene == yName,]
+  idx  <- match(w_p$varID, rownames(geno))
+  keep <- !is.na(idx)
+  x_p <- geno[idx[keep], SampleID, drop = FALSE] |> as.matrix() |> t()
+  y_p_hat= x_p%*% w_p$tissue[keep]
 
-  # get residuals from the pi.
-  residuals <- resid(lm(y ~ pi))
-  cor1=c(cor(y_s_hat, y), cor(y_m_new_hat, y),  cor(y_m_old_hat, y), cor(y_p_hat, y))
+  cor1=c(cor(y_s_hat, y, use="pairwise.complete.obs"), cor(y_m_new_hat, y, use="pairwise.complete.obs"),
+         cor(y_m_old_hat, y, use="pairwise.complete.obs"), cor(y_p_hat, y, use="pairwise.complete.obs"))
   cor=rbind(cor, cor1)
-  print(g)
+
 }
 
 colnames(cor) <- c("ctOWAS","MiXcan (ctOWAS pi)",  "MiXcan (original pi)", "PrediXcan")
-cor[is.na(cor)] <- 0
+
+apply(cor, 2, median, na.rm=T)
+# ctOWAS   MiXcan (ctOWAS pi) MiXcan (original pi)            PrediXcan
+# 0.3037511            0.1351166            0.1367440            0.1115168
 apply(cor, 2, mean, na.rm=T)
-apply(cor[which(cor[,1]==0),], 2, mean, na.rm=T)
-apply(cor[which(cor[,1]!=0),], 2, mean, na.rm=T)
 
 save(cor,file = file.path(results_dir, "TCGA_Breast_pi2_Cor_Comparison.RData"))
 
@@ -221,12 +223,7 @@ save(cor,file = file.path(results_dir, "TCGA_Breast_pi2_Cor_Comparison.RData"))
 # --------------------------------------
 # -------------------- plot -------------------
 # -------------------------------------`-
-method_cols <- c(
-  "PrediXcan"            = "#B8B8B8",
-  "MiXcan (original pi)" = "#4F7CAC",
-  "MiXcan (ctOWAS pi)"      = "#7FA6D6",
-  "ctOWAS"               = "#F0645E"
-)
+method_cols <- c( "PrediXcan"= "#B8B8B8", "MiXcan (original pi)" = "#4F7CAC", "MiXcan (ctOWAS pi)" = "#7FA6D6", "ctOWAS" = "#F0645E")
 method_levels <- names(method_cols)
 
 ## ---------------- Model size ----------------
@@ -299,7 +296,9 @@ p1 <- ggplot2::ggplot(
   )
 p1
 ## ---------------- Correlation ----------------
-
+load(file = file.path(results_dir, "TCGA_Breast_pi2_Cor_Comparison.RData"))
+# cor
+# cor[is.na(cor)]=0
 cor_long <- as.data.frame(cor) |>
   tibble::rownames_to_column("gene") |>
   tidyr::pivot_longer(
@@ -311,58 +310,15 @@ cor_long <- as.data.frame(cor) |>
     Method = factor(Method, levels = method_levels)
   )
 
-## Method-specific modelled genes
-cor_nonzero <- cor_long |>
-  dplyr::filter(
-    is.finite(Correlation),
-    Correlation != 0
-  )
-
-mean_nonzero_df <- cor_nonzero |>
-  dplyr::group_by(Method) |>
-  dplyr::summarise(
-    mean_cor = mean(Correlation),
-    .groups = "drop"
-  )
-
-p2 <- ggplot2::ggplot(
-  cor_nonzero,
-  ggplot2::aes(Method, Correlation, fill = Method)
-) +
-  ggplot2::geom_boxplot(
-    width = 0.5, outlier.alpha = 0.2,
-    linewidth = 0.6
-  ) +
-  ggplot2::scale_fill_manual(values = method_cols, guide = "none") +
-  ggplot2::labs(
-    title = "Method-Specific Genes",
-    x = NULL,
-    y = "Correlation"
-  ) +
-  ggplot2::theme_classic(base_size = 14) +
-  ggplot2::theme(
-    axis.text.x = ggplot2::element_text(angle = 25, hjust = 1)
-  )
-
-p2
-## ---------------- All genes with at least one model ----------------
-
-modelled_genes <- cor_long |>
-  dplyr::group_by(gene) |>
-  dplyr::filter(
-    any(is.finite(Correlation) & Correlation != 0)
-  ) |>
-  dplyr::ungroup()
-
-mean_all_df <- modelled_genes |>
+stat <- cor_long |>
   dplyr::group_by(Method) |>
   dplyr::summarise(
     mean_cor = mean(Correlation, na.rm = TRUE),
     .groups = "drop"
   )
-
+stat
 p3 <- ggplot2::ggplot(
-  modelled_genes,
+  cor_long,
   ggplot2::aes(Method, Correlation, fill = Method)
 ) +
   ggplot2::geom_boxplot(
