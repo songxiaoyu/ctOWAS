@@ -1,11 +1,12 @@
 # ctOWAS: cell-type-level omics-wide association studies
 
-`ctOWAS` is an R package for **cell-type-level OWAS**. Bulk-tissue molecular
-traits (such as gene expression or protein abundance) are modelled as a mixture
+`ctOWAS` is an R package for **cell-type-level omics-wide association studies (OWAS)**. 
+Bulk-tissue molecular
+traits (such as gene expression or protein abundance) are modeled as a mixture
 of K cell types, so genetic prediction weights can be estimated separately for
 each cell type. These cell-type-specific weights are then combined with GWAS
-summary statistics and an LD reference panel to test which cell type(s) carry a
-molecule–trait association.
+summary statistics and an LD reference panel to test cell-type-level and tissue-level
+molecule–trait associations.
 
 The repository contains:
 
@@ -63,12 +64,9 @@ library(ctOWAS)
 
 ## Run the example data
 
-The package ships with small simulated datasets (20 samples, 10 SNPs, 2 cell
-types):
-
 | Dataset | Description |
 |---|---|
-| `expr` | Bulk expression matrix, 24919 genes × 24919 samples |
+| `expr` | Bulk expression matrix, 24919 genes × 125 samples |
 | `markers` | Named list of marker genes for three cell types (`Epithelial`, `Adipocyte`, `Fibroblast`) |
 | `pi_k` | Cell-type fraction matrix, 20 samples × 2 cell types (`Cell1`, `Cell2`) |
 | `x_example` | Genotype dosage matrix, 20 samples × 10 SNPs |
@@ -253,7 +251,7 @@ res <- ctOWAS_assoc_test_K(
   n0             = 1000,        # GWAS controls
   n1             = 1000,        # GWAS cases
   family         = "binomial",  # or "gaussian" for a continuous trait
-  reg_scale      = 0.1,         # shrinkage level of variance-covariance matrix to avoid sigularity
+  reg_scale      = 0.01,         # shrinkage level of variance-covariance matrix to avoid sigularity
   regularization = "fixed"     # or "estimate" proper shrinkage level
 )
 
